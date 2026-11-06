@@ -1,1 +1,17 @@
 /target
+*.state/
+*.log
+/testing
+/docker-data
+*.yaml
+/*_config.toml
+*.yml
+*.sh
+.vscode
+.dockerignore
+Dockerfile
+
+# CI workflow is the one yaml file that belongs in the repo
+!/.github/workflows/*.yml
+!/.github/dependabot.yml
+/dist

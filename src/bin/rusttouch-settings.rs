@@ -37,6 +37,8 @@ const CSS: &str = "
 .bg-swatch.selected { border-color: currentColor; }
 .bg-same { background: alpha(currentColor, 0.08); font-size: 12px; }
 .note { font-size: 12px; opacity: 0.7; margin: 8px 6px; }
+.settings-search { margin: 4px 2px 10px 2px; min-height: 40px; }
+.close-btn { min-width: 36px; min-height: 36px; padding: 0; font-weight: 700; }
 ";
 
 #[allow(deprecated)] // FileChooserNative: deprecated in GTK 4.10 but works fine
@@ -107,10 +109,18 @@ fn build(app: &gtk::Application) {
     let back = gtk::Button::with_label("‹ Back");
     back.set_visible(false);
     header.pack_start(&back);
+    // our own ✕: the stock close button's icon is missing without an icon theme
+    header.set_show_title_buttons(false);
+    let close = gtk::Button::with_label("✕");
+    close.add_css_class("close-btn");
+    close.set_tooltip_text(Some("Close"));
+    header.pack_end(&close);
     let title = gtk::Label::new(Some("Settings"));
     title.add_css_class("title");
     header.set_title_widget(Some(&title));
     window.set_titlebar(Some(&header));
+    let w = window.clone();
+    close.connect_clicked(move |_| w.close());
 
     let stack = gtk::Stack::new();
     stack.set_transition_type(gtk::StackTransitionType::SlideLeftRight);
@@ -302,7 +312,7 @@ const PAGES: &[(&str, &str, PageFn)] = &[
     ),
     (
         "Displays",
-        "Monitors, resolution, scale, rotation, layout",
+        "Main screen, resolution, rotation (others mirror it)",
         displays,
     ),
     ("Startup apps", "Programs to start when you log in", startup),
@@ -317,7 +327,154 @@ const PAGES: &[(&str, &str, PageFn)] = &[
     ("About", "Version, files", about),
 ];
 
+/// What the search box finds: (setting, page it's on, extra words to match).
+const SEARCH: &[(&str, &str, &str)] = &[
+    (
+        "Theme (dark, light...)",
+        "Appearance",
+        "colors colour dark mode light mode nord dracula gruvbox",
+    ),
+    ("Accent color", "Appearance", "colour highlight"),
+    (
+        "Home screen background",
+        "Appearance",
+        "wallpaper picture image gradient photo",
+    ),
+    (
+        "Lock screen background",
+        "Appearance",
+        "wallpaper picture image gradient",
+    ),
+    (
+        "Lock screen message",
+        "Appearance",
+        "text owner contact if found",
+    ),
+    ("12 or 24 hour time", "Clock & bars", "clock 24h am pm"),
+    ("Date format", "Clock & bars", "day month year"),
+    ("Top bar clock", "Clock & bars", "time status bar"),
+    ("Top bar height", "Clock & bars", "size status bar"),
+    (
+        "Button bar height",
+        "Clock & bars",
+        "size nav navigation back home recents",
+    ),
+    (
+        "Auto-hide the bars",
+        "Clock & bars",
+        "hide full screen immersive",
+    ),
+    ("Main screen", "Displays", "monitor primary output"),
+    (
+        "Mirror other screens",
+        "Displays",
+        "monitor projector hdmi external second clone",
+    ),
+    ("Resolution", "Displays", "mode monitor size"),
+    ("Scale", "Displays", "zoom bigger smaller dpi hidpi"),
+    (
+        "Rotation",
+        "Displays",
+        "portrait landscape orientation turn",
+    ),
+    (
+        "Auto-rotate",
+        "Displays",
+        "accelerometer orientation portrait landscape",
+    ),
+    ("Mouse pointer", "Displays", "cursor show hide"),
+    (
+        "Apps that start at login",
+        "Startup apps",
+        "autostart boot login rustsync",
+    ),
+    (
+        "Split screen",
+        "Windows",
+        "side by side multitasking tiling window group",
+    ),
+    ("How new apps open", "Windows", "full screen tile tiling"),
+    (
+        "Split direction",
+        "Windows",
+        "side by side top bottom stacked",
+    ),
+    (
+        "Compositor (sway, phoc, labwc)",
+        "Windows",
+        "window manager",
+    ),
+    (
+        "Turn screen off after",
+        "Power & screen",
+        "idle timeout sleep blank display",
+    ),
+    (
+        "Lock when the screen turns off",
+        "Power & screen",
+        "security password",
+    ),
+    ("Sleep after", "Power & screen", "suspend idle"),
+    (
+        "Power button",
+        "Power & screen",
+        "press hold double sleep shutdown",
+    ),
+    (
+        "Show keyboard automatically",
+        "Keyboard",
+        "on-screen osk typing text",
+    ),
+    (
+        "Make room for the keyboard",
+        "Keyboard",
+        "resize apps hidden covered",
+    ),
+    ("Keyboard size", "Keyboard", "height bigger smaller"),
+    (
+        "Key shape and colors",
+        "Keyboard",
+        "style rounding font label",
+    ),
+    ("Keyboard program", "Keyboard", "wvkbd squeekboard"),
+    ("Wi-Fi", "Network", "wifi wireless internet password"),
+    (
+        "Text cursor blinking",
+        "Keyboard",
+        "caret blink speed fast slow",
+    ),
+    ("Bluetooth", "Network", "headphones speaker pair"),
+    ("Version and log file", "About", "config file help"),
+];
+
 fn main_page(ctx: &Rc<Ctx>) -> gtk::Widget {
+    // search box at the top of the main page
+    let entry = gtk::SearchEntry::new();
+    entry.set_placeholder_text(Some("Search settings"));
+    entry.set_hexpand(true);
+    entry.add_css_class("settings-search");
+    // not focused when the app opens (that would pop up the keyboard) - only
+    // once you tap it
+    entry.set_can_focus(false);
+    let tap = gtk::GestureClick::new();
+    tap.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let e = entry.clone();
+    tap.connect_pressed(move |_, _, _, _| {
+        if !e.can_focus() {
+            e.set_can_focus(true);
+            e.grab_focus();
+        }
+    });
+    entry.add_controller(tap);
+
+    let results = gtk::ListBox::new();
+    results.set_selection_mode(gtk::SelectionMode::None);
+    results.add_css_class("group");
+    results.set_visible(false);
+    let none = gtk::Label::new(Some("No settings match"));
+    none.add_css_class("note");
+    none.set_visible(false);
+
     let list = gtk::ListBox::new();
     list.set_selection_mode(gtk::SelectionMode::None);
     list.add_css_class("group");
@@ -341,7 +498,61 @@ fn main_page(ctx: &Rc<Ctx>) -> gtk::Widget {
         let i: usize = row.widget_name().parse().unwrap_or(0);
         open_page(&c, i);
     });
-    page(&[list.upcast()])
+
+    let (res, l, n) = (results.clone(), list.clone(), none.clone());
+    entry.connect_search_changed(move |e| {
+        while let Some(r) = res.first_child() {
+            res.remove(&r);
+        }
+        let q = e.text().trim().to_lowercase();
+        let searching = !q.is_empty();
+        l.set_visible(!searching);
+        res.set_visible(false);
+        n.set_visible(false);
+        if !searching {
+            return;
+        }
+        let words: Vec<&str> = q.split_whitespace().collect();
+        let mut found = 0;
+        for (title, page_name, extra) in SEARCH {
+            let hay = format!("{title} {page_name} {extra}").to_lowercase();
+            if !words.iter().all(|w| hay.contains(w)) {
+                continue;
+            }
+            let Some(i) = PAGES.iter().position(|p| p.0 == *page_name) else {
+                continue;
+            };
+            let vb = gtk::Box::new(gtk::Orientation::Vertical, 2);
+            vb.add_css_class("nav-row");
+            let t = gtk::Label::new(Some(*title));
+            t.set_halign(gtk::Align::Start);
+            let s = gtk::Label::new(Some(*page_name));
+            s.set_halign(gtk::Align::Start);
+            s.add_css_class("row-sub");
+            vb.append(&t);
+            vb.append(&s);
+            let row = gtk::ListBoxRow::new();
+            row.set_child(Some(&vb));
+            row.set_widget_name(&i.to_string());
+            res.append(&row);
+            found += 1;
+        }
+        res.set_visible(found > 0);
+        n.set_visible(found == 0);
+    });
+    let (c, e) = (ctx.clone(), entry.clone());
+    results.connect_row_activated(move |_, row| {
+        let i: usize = row.widget_name().parse().unwrap_or(0);
+        e.set_text("");
+        open_page(&c, i);
+    });
+
+    page(&[
+        entry.upcast(),
+        results.upcast(),
+        none.upcast(),
+        list.upcast(),
+    ])
 }
 
 /// Pages are rebuilt each time they open, so they always show the current file.
@@ -771,6 +982,18 @@ fn keyboard(_: &Rc<Ctx>) -> gtk::Widget {
                     "keyboard_auto",
                     "Show automatically",
                     Some("Pop up when you tap a text field"),
+                ),
+                choice_row(
+                    &cfg,
+                    "cursor_blink",
+                    "Text cursor blinking",
+                    Some("In RustTouch and in apps"),
+                    &[
+                        ("standard", "Standard"),
+                        ("slow", "Slow"),
+                        ("fast", "Fast"),
+                        ("off", "Off (steady)"),
+                    ],
                 ),
                 switch_row(
                     &cfg,

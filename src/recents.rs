@@ -203,13 +203,26 @@ fn card_size(shell: &Shell) -> (i32, i32) {
 }
 
 /// A screenshot shrunk to w x h (device pixels for sharp text), or None.
-fn preview(shell: &Shell, key: Option<u32>, w: i32, h: i32) -> Option<gtk::Widget> {
+pub fn preview(path: Option<std::path::PathBuf>, w: i32, h: i32) -> Option<gtk::Widget> {
     let scale = shell::shell_monitor()
         .map(|m| m.scale_factor())
         .unwrap_or(1)
         .max(1);
-    let path = shell.preview(key?)?;
-    let pb = gtk::gdk_pixbuf::Pixbuf::from_file_at_scale(&path, w * scale, h * scale, true).ok()?;
+    let path = path?;
+    // Fill the window's spot in the card exactly (cropping a little if the
+    // screenshot's shape differs), so a card looks like a small copy of the group.
+    let full = gtk::gdk_pixbuf::Pixbuf::from_file(&path).ok()?;
+    let (tw, th) = (f64::from(w * scale), f64::from(h * scale));
+    let (fw, fh) = (
+        f64::from(full.width().max(1)),
+        f64::from(full.height().max(1)),
+    );
+    let k = (tw / fw).max(th / fh);
+    let pb = full.scale_simple(
+        (fw * k).ceil().max(1.0) as i32,
+        (fh * k).ceil().max(1.0) as i32,
+        gtk::gdk_pixbuf::InterpType::Hyper,
+    )?;
     // A drawing area is exactly w x h (a Picture would ask for the image's
     // full pixel size and stretch the card); the image is painted at device
     // resolution so text stays sharp.
@@ -221,7 +234,9 @@ fn preview(shell: &Shell, key: Option<u32>, w: i32, h: i32) -> Option<gtk::Widge
         let (pw, ph) = (f64::from(pb.width()) / f, f64::from(pb.height()) / f);
         let (x, y) = ((f64::from(aw) - pw) / 2.0, (f64::from(ah) - ph) / 2.0);
         let _ = cr.save();
-        cr.translate(x.max(0.0), y.max(0.0));
+        cr.rectangle(0.0, 0.0, f64::from(aw), f64::from(ah));
+        cr.clip();
+        cr.translate(x, y);
         cr.scale(1.0 / f, 1.0 / f);
         cr.set_source_pixbuf(&pb, 0.0, 0.0);
         let _ = cr.paint();
@@ -230,7 +245,7 @@ fn preview(shell: &Shell, key: Option<u32>, w: i32, h: i32) -> Option<gtk::Widge
     Some(area.upcast())
 }
 
-fn placeholder(app_id: &str, icon_px: i32, explain: bool) -> gtk::Widget {
+pub fn placeholder(app_id: &str, icon_px: i32, explain: bool) -> gtk::Widget {
     let b = gtk::Box::new(gtk::Orientation::Vertical, 0);
     b.add_css_class("rcard-empty");
     let img = apps::icon_image(apps::icon_for_app_id(app_id).as_ref(), icon_px);
@@ -244,7 +259,7 @@ fn placeholder(app_id: &str, icon_px: i32, explain: bool) -> gtk::Widget {
     if explain {
         let why =
             gtk::Label::new(Some(&shell::capture_error().unwrap_or_else(|| {
-                "Preview appears after you leave the app".to_string()
+                "Preview appears once the app has been on screen".to_string()
             })));
         why.add_css_class("hint");
         why.set_wrap(true);
@@ -284,14 +299,6 @@ fn ordered_groups(shell: &Shell) -> Vec<sway::Group> {
     };
     groups.sort_by_key(rank);
     groups
-}
-
-fn key_for(shell: &Shell, app_id: &str, title: &str) -> Option<u32> {
-    let tl = shell.toplevels_mru();
-    tl.iter()
-        .find(|t| t.app_id == app_id && t.title == title)
-        .or_else(|| tl.iter().find(|t| t.app_id == app_id))
-        .map(|t| t.key)
 }
 
 fn group_card(
@@ -353,8 +360,7 @@ fn group_card(
             h: ((f64::from(win.rect.h)) * sy) as i32 - 2 * gap,
         };
         let (rw, rh) = (r.w.max(24), r.h.max(24));
-        let key = key_for(shell, &win.app_id, &win.title);
-        let content: gtk::Widget = match preview(shell, key, rw, rh) {
+        let content: gtk::Widget = match preview(shell.con_preview(win.id), rw, rh) {
             Some(p) => p.upcast(),
             None => placeholder(
                 &win.app_id,
@@ -643,7 +649,7 @@ fn card(shell: &Shell, t: Toplevel, w: i32, h: i32) -> Slide {
     title.set_hexpand(true);
     header.append(&title);
 
-    let frame: gtk::Widget = match preview(shell, Some(t.key), w, h) {
+    let frame: gtk::Widget = match preview(shell.preview(t.key), w, h) {
         Some(p) => p.upcast(),
         None => placeholder(&t.app_id, 96, true),
     };

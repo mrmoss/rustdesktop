@@ -45,7 +45,34 @@ mod wl;
 use gtk::glib;
 use gtk::prelude::*;
 
+/// `rusttouch --do <action>`: ask the running shell to do something (used by
+/// touchpad gesture bindings; handy for your own key bindings or scripts too).
+fn send_action(action: &str) -> glib::ExitCode {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let path = shell::ctl_path();
+    // non-blocking: fails straight away if rusttouch isn't running
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(0o4000) // O_NONBLOCK
+        .open(&path)
+    {
+        Ok(mut f) => {
+            let _ = writeln!(f, "{action}");
+            glib::ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("rusttouch isn't running ({}: {e})", path.display());
+            glib::ExitCode::FAILURE
+        }
+    }
+}
+
 fn main() -> glib::ExitCode {
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--do") {
+        return send_action(args.get(2).map(String::as_str).unwrap_or(""));
+    }
     let app = gtk::Application::builder()
         .application_id("dev.rusttouch.Shell")
         .build();

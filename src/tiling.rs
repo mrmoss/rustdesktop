@@ -48,6 +48,8 @@ struct Divider {
 struct State {
     dividers: Vec<gtk::ApplicationWindow>,
     layout: Vec<Divider>,
+    /// ✕ buttons for windows without a title bar: (window id, its area)
+    closers: Vec<(i64, Rect)>,
     output: Rect,
     dragging: bool,
     guide: Option<(
@@ -73,6 +75,10 @@ pub fn start(shell: &Shell) {
         return;
     }
     eprintln!("rusttouch: sway found - split screen available");
+    // Apps that can draw their own title bar (most GTK/Qt apps) are asked to,
+    // so they get a close button - sway's own title bars have none.
+    sway::run(r#"for_window [shell="xdg_shell"] border csd"#);
+    sway::run(r#"[shell="xdg_shell"] border csd"#);
     let tx = shell.tx();
     sway::watch_windows(move |change, c| {
         if change == "new" && c["type"] == "con" && c["app_id"] != MIRROR_APP {
@@ -286,6 +292,253 @@ pub fn dock_group(d: i64, num: i64, side: Side) {
     }
 }
 
+/// A window-group switch that follows your finger (swipe along the button
+/// bar): the group you're leaving and the next one, drawn from their recents
+/// screenshots, move 1:1 with the finger; let go to finish or snap back.
+pub struct SlideDrag {
+    win: gtk::ApplicationWindow,
+    fixed: gtk::Fixed,
+    old: gtk::Widget,
+    new: gtk::Widget,
+    /// screen width, and +1 = next group comes in from the right
+    w: f64,
+    dir: f64,
+    num: i64,
+}
+
+impl SlideDrag {
+    /// `forward` = towards the next group (finger moving left).
+    pub fn begin(shell: &Shell, forward: bool) -> Option<SlideDrag> {
+        let out = shell::shell_output_name();
+        let scr = sway::screen(out.as_deref())?;
+        let mut groups = sway::groups(out.as_deref());
+        groups.sort_by_key(|g| g.num);
+        let cur = scr.num;
+        let target = if forward {
+            groups.iter().find(|g| g.num > cur).or(groups.first())
+        } else {
+            groups.iter().rev().find(|g| g.num < cur).or(groups.last())
+        }?
+        .clone();
+        if target.num == cur {
+            return None;
+        }
+        let area = scr.area;
+        let (w, h) = (area.w.max(1), area.h.max(1));
+        let old = group_picture(&scr.root, area, w, h, shell);
+        let new = group_picture(&target.root, target.rect, w, h, shell);
+        let a = Anchors {
+            top: true,
+            left: true,
+            bottom: false,
+            right: false,
+        };
+        let win = overlay_window(shell, "rusttouch group switch", Layer::Top, a);
+        layer::set_margins(&win, area.y - scr.output.y, 0, 0, area.x - scr.output.x);
+        win.set_default_size(w, h);
+        win.add_css_class("switch-bg");
+        let fixed = gtk::Fixed::new();
+        fixed.set_size_request(w, h);
+        fixed.set_overflow(gtk::Overflow::Hidden);
+        let dir = if forward { 1.0 } else { -1.0 };
+        let fw = f64::from(w);
+        fixed.put(&old, 0.0, 0.0);
+        fixed.put(&new, dir * fw, 0.0);
+        win.set_child(Some(&fixed));
+        win.present();
+        Some(SlideDrag {
+            win,
+            fixed,
+            old,
+            new,
+            w: fw,
+            dir,
+            num: target.num,
+        })
+    }
+
+    /// Finger moved: `dx` px since the swipe started.
+    pub fn set(&self, dx: f64) {
+        // only towards the chosen group; pulling back stops at the start
+        let travel = (-dx * self.dir).clamp(0.0, self.w);
+        let p = travel / self.w;
+        self.place(p);
+    }
+
+    fn place(&self, p: f64) {
+        self.fixed.move_(&self.old, -self.dir * self.w * p, 0.0);
+        self.fixed
+            .move_(&self.new, self.dir * self.w * (1.0 - p), 0.0);
+    }
+
+    fn progress(&self, dx: f64) -> f64 {
+        ((-dx * self.dir) / self.w).clamp(0.0, 1.0)
+    }
+
+    /// Finger lifted: finish when far enough or flicked, else snap back.
+    /// `vel` = px/s (negative = moving left).
+    pub fn end(self, dx: f64, vel: f64) {
+        let p = self.progress(dx);
+        let flick = -vel * self.dir; // positive = towards the target
+        let commit = p > 0.3 || flick > 600.0;
+        if commit {
+            // the real windows switch underneath while we finish the slide
+            sway::run(&format!("workspace number {}", self.num));
+        }
+        let to = if commit { 1.0 } else { 0.0 };
+        let ms = (((to - p) as f64).abs() * 220.0).max(80.0) as u32;
+        let fixed = self.fixed.clone();
+        let win = self.win.clone();
+        let this = Rc::new(self);
+        let _ = crate::anim::run(
+            &fixed,
+            ms,
+            move |e| this.place(p + (to - p) * e),
+            move || {
+                let _ = glib::timeout_add_local_once(
+                    Duration::from_millis(if commit { 50 } else { 0 }),
+                    move || win.destroy(),
+                );
+            },
+        );
+    }
+}
+
+/// Switch to the next/previous group without a finger (`rusttouch --do`).
+pub fn slide_switch(shell: &Shell, forward: bool) {
+    if let Some(d) = SlideDrag::begin(shell, forward) {
+        let dx = -d.dir * d.w; // "dragged" all the way
+        let _ =
+            glib::timeout_add_local_once(Duration::from_millis(30), move || d.end(dx * 0.31, 0.0));
+    }
+}
+
+thread_local! {
+    /// screenshots already decoded at screen size (a swipe must start instantly)
+    static PICS: RefCell<Vec<(std::path::PathBuf, i32, i32, gtk::gdk_pixbuf::Pixbuf)>> =
+        const { RefCell::new(Vec::new()) };
+}
+
+/// A screenshot stretched to exactly w x h, decoded once and kept.
+fn quick_picture(path: Option<std::path::PathBuf>, w: i32, h: i32) -> Option<gtk::Widget> {
+    use gtk::gdk::prelude::GdkCairoContextExt;
+    let path = path?;
+    let scale = shell::shell_monitor()
+        .map(|m| m.scale_factor())
+        .unwrap_or(1)
+        .max(1);
+    let (pw, ph) = (w * scale, h * scale);
+    let cached = PICS.with(|c| {
+        c.borrow()
+            .iter()
+            .find(|e| e.0 == path && e.1 == pw && e.2 == ph)
+            .map(|e| e.3.clone())
+    });
+    let pb = match cached {
+        Some(pb) => pb,
+        None => {
+            let pb = gtk::gdk_pixbuf::Pixbuf::from_file_at_scale(&path, pw, ph, false).ok()?;
+            PICS.with(|c| {
+                let mut c = c.borrow_mut();
+                c.retain(|e| e.0.exists());
+                if c.len() > 24 {
+                    c.remove(0);
+                }
+                c.push((path.clone(), pw, ph, pb.clone()));
+            });
+            pb
+        }
+    };
+    let area = gtk::DrawingArea::new();
+    area.set_content_width(w);
+    area.set_content_height(h);
+    let f = f64::from(scale);
+    area.set_draw_func(move |_, cr, _, _| {
+        cr.scale(1.0 / f, 1.0 / f);
+        cr.set_source_pixbuf(&pb, 0.0, 0.0);
+        let _ = cr.paint();
+    });
+    Some(area.upcast())
+}
+
+/// Decode the screenshots a swipe would need ahead of time.
+pub fn warm_pictures(shell: &Shell) {
+    let out = shell::shell_output_name();
+    for g in sway::groups(out.as_deref()) {
+        let (w, h) = (g.rect.w.max(1), g.rect.h.max(1));
+        let _ = group_picture(&g.root, g.rect, w, h, shell);
+    }
+}
+
+/// A group drawn from its windows' screenshots, w x h.
+fn group_picture(root: &Node, area: Rect, w: i32, h: i32, shell: &Shell) -> gtk::Widget {
+    let fixed = gtk::Fixed::new();
+    fixed.set_size_request(w, h);
+    fixed.add_css_class("switch-bg");
+    let wins = root.windows();
+    if wins.is_empty() {
+        // the home screen
+        let b = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        b.add_css_class("home");
+        b.set_size_request(w, h);
+        fixed.put(&b, 0.0, 0.0);
+        return fixed.upcast();
+    }
+    let sx = f64::from(w) / f64::from(area.w.max(1));
+    let sy = f64::from(h) / f64::from(area.h.max(1));
+    for win in wins {
+        let rw = ((f64::from(win.rect.w)) * sx) as i32;
+        let rh = ((f64::from(win.rect.h)) * sy) as i32;
+        let content = quick_picture(shell.con_preview(win.id), rw.max(1), rh.max(1))
+            .unwrap_or_else(|| crate::recents::placeholder(&win.app_id, 96, false));
+        content.set_size_request(rw.max(1), rh.max(1));
+        fixed.put(
+            &content,
+            f64::from(win.rect.x - area.x) * sx,
+            f64::from(win.rect.y - area.y) * sy,
+        );
+    }
+    fixed.upcast()
+}
+
+/// Show the most recently used group other than the one showing (Android:
+/// tap ■ twice). `mru` = window list, most recent first.
+pub fn last_group(mru: &[Toplevel], home_showing: bool) {
+    let groups = sway::groups(shell::shell_output_name().as_deref());
+    let rank = |g: &sway::Group| {
+        g.root
+            .windows()
+            .iter()
+            .filter_map(|w| {
+                mru.iter()
+                    .position(|t| t.app_id == w.app_id && t.title == w.title)
+            })
+            .min()
+            .unwrap_or(usize::MAX)
+    };
+    let mut ordered: Vec<&sway::Group> = groups.iter().collect();
+    ordered.sort_by_key(|g| rank(g));
+    let pick = if home_showing {
+        ordered.first()
+    } else {
+        ordered.get(1)
+    };
+    let Some(g) = pick else { return };
+    // its most recently used window
+    let wins = g.root.windows();
+    let best = wins
+        .iter()
+        .min_by_key(|w| {
+            mru.iter()
+                .position(|t| t.app_id == w.app_id && t.title == w.title)
+                .unwrap_or(usize::MAX)
+        })
+        .or(wins.first());
+    if let Some(w) = best {
+        sway::run(&format!("[con_id={}] focus", w.id));
+    }
+}
+
 /// Is the split holding `id` side by side? (visible workspaces on all monitors)
 fn parent_layout(id: i64) -> Option<bool> {
     for out in crate::screens::all_outputs() {
@@ -352,6 +605,15 @@ pub fn layout_changed(shell: &Shell) {
     let _ = glib::timeout_add_local_once(Duration::from_millis(150), move || {
         LAYOUT_PENDING.with(|p| p.set(false));
         s.sync_home(sway::showing_nothing(shell::shell_output_name().as_deref()));
+        let alive: Vec<i64> = sway::all_windows().iter().map(|w| w.id).collect();
+        s.prune_con_previews(&alive);
+        // keep previews fresh after the layout changed under the user's eyes
+        if !s.home_visible() && !s.any_showing() {
+            let _ = glib::timeout_add_local_once(Duration::from_millis(250), {
+                let s = s.clone();
+                move || shell::capture_then(&s, || {})
+            });
+        }
         refresh(&s, true);
     });
 }
@@ -373,7 +635,7 @@ pub fn refresh(shell: &Shell, force: bool) {
         return;
     }
     if !show {
-        set_layout(shell, Vec::new(), Rect::default()); // no sway call: cheap
+        set_layout(shell, Vec::new(), Vec::new(), Rect::default()); // no sway call: cheap
         return;
     }
     let now = glib::monotonic_time();
@@ -393,13 +655,21 @@ pub fn refresh(shell: &Shell, force: bool) {
     };
     let mut list = Vec::new();
     dividers(&scr.root, &mut list);
-    set_layout(shell, list, scr.output);
+    // X11 apps have no title bar under sway: give them a ✕
+    let closers: Vec<(i64, Rect)> = scr
+        .root
+        .windows()
+        .iter()
+        .filter(|w| w.xwayland)
+        .map(|w| (w.id, w.rect))
+        .collect();
+    set_layout(shell, list, closers, scr.output);
 }
 
-fn set_layout(shell: &Shell, list: Vec<Divider>, output: Rect) {
+fn set_layout(shell: &Shell, list: Vec<Divider>, closers: Vec<(i64, Rect)>, output: Rect) {
     let same = STATE.with(|s| {
         let s = s.borrow();
-        s.layout == list && s.output == output
+        s.layout == list && s.closers == closers && s.output == output
     });
     if same {
         return;
@@ -407,17 +677,46 @@ fn set_layout(shell: &Shell, list: Vec<Divider>, output: Rect) {
     let old = STATE.with(|s| {
         let mut s = s.borrow_mut();
         s.layout = list.clone();
+        s.closers = closers.clone();
         s.output = output;
         std::mem::take(&mut s.dividers)
     });
     for w in old {
         w.destroy();
     }
-    let wins: Vec<_> = list
+    let mut wins: Vec<_> = list
         .iter()
         .map(|d| divider_window(shell, d, output))
         .collect();
+    wins.extend(
+        closers
+            .iter()
+            .map(|(id, r)| close_window(shell, *id, *r, output)),
+    );
     STATE.with(|s| s.borrow_mut().dividers = wins);
+}
+
+/// A small ✕ in the top right corner of a window that has no title bar.
+fn close_window(shell: &Shell, id: i64, r: Rect, out: Rect) -> gtk::ApplicationWindow {
+    let a = Anchors {
+        top: true,
+        left: true,
+        bottom: false,
+        right: false,
+    };
+    let w = overlay_window(shell, "rusttouch close button", Layer::Top, a);
+    let size = 32;
+    layer::set_margins(&w, r.y - out.y + 4, 0, 0, r.x - out.x + r.w - size - 4);
+    w.set_default_size(size, size);
+    let b = gtk::Button::with_label("✕");
+    b.add_css_class("win-close");
+    b.set_size_request(size, size);
+    b.connect_clicked(move |_| {
+        sway::run(&format!("[con_id={id}] kill"));
+    });
+    w.set_child(Some(&b));
+    w.present();
+    w
 }
 
 fn overlay_window(shell: &Shell, title: &str, layer_: Layer, a: Anchors) -> gtk::ApplicationWindow {
@@ -611,7 +910,7 @@ pub fn arrange(shell: &Shell) {
     w.set_child(Some(&arrange_content(shell, &scr)));
     w.present();
     STATE.with(|s| s.borrow_mut().arrange = Some(w));
-    set_layout(shell, Vec::new(), Rect::default()); // handles would sit on top
+    set_layout(shell, Vec::new(), Vec::new(), Rect::default()); // handles would sit on top
 }
 
 pub fn close_arrange() -> bool {

@@ -206,3 +206,18 @@ searchentry {
   min-width: 28px; min-height: 28px; font-size: 14px; font-weight: 700;
 }
 .drop-hint.group-edge { background: alpha(@rd_accent, 0.5); border-width: 4px; }
+.win-close {
+  background: alpha(black, 0.55); color: white; border-radius: 999px; border: none;
+  box-shadow: none; min-width: 32px; min-height: 32px; padding: 0; font-weight: 700;
+}
+.win-close:hover { background: alpha(#d33, 0.85); }
+.switch-bg { background: black; }
+/* holding Wi-Fi / Bluetooth: an outline grows in, then the tile glows */
+.qs-tile.lp-pressing {
+  transition: box-shadow 450ms ease-in;
+  box-shadow: inset 0 0 0 3px alpha(@rd_accent, 0.9);
+}
+.qs-tile.lp-ready {
+  box-shadow: inset 0 0 0 3px @rd_accent, 0 0 22px alpha(@rd_accent, 0.75);
+  background: alpha(@rd_accent, 0.45);
+}

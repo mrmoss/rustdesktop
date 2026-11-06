@@ -129,10 +129,17 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
     );
 
     // search filtering on the name part of the widget name
-    // tapping the search box: take the keyboard so typing works on any compositor
+    // tapping the search box brings up the keyboard (only then - not when the
+    // drawer opens and GTK puts the cursor there by itself)
+    // On *press*: the text field claims the touch for itself right after,
+    // which cancels this gesture, so a "released" would never arrive.
     let focus = gtk::GestureClick::new();
-    let s = shell.clone();
-    focus.connect_pressed(move |_, _, _, _| s.drawer.set_typing(true));
+    focus.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let (s, e) = (shell.clone(), entry.clone());
+    focus.connect_pressed(move |_, _, _, _| {
+        e.grab_focus();
+        s.sheet_keyboard(Overlay::Drawer, true);
+    });
     entry.add_controller(focus);
 
     let e = entry.clone();

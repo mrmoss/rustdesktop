@@ -133,6 +133,8 @@ pub struct Win {
     /// Wayland app_id, or the X11 class for XWayland apps
     pub app_id: String,
     pub title: String,
+    /// an X11 app (draws no title bar of its own under sway)
+    pub xwayland: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -202,6 +204,9 @@ impl Node {
 #[derive(Clone, Debug)]
 pub struct Screen {
     pub output: Rect,
+    /// the visible workspace's number and area
+    pub num: i64,
+    pub area: Rect,
     /// the visible workspace's tiled windows (the workspace itself is the root split)
     pub root: Node,
 }
@@ -226,6 +231,7 @@ fn node(v: &Value) -> Option<Node> {
             rect,
             app_id,
             title: v["name"].as_str().unwrap_or("").to_string(),
+            xwayland: v["shell"] == "xwayland",
         }));
     }
     if kids.is_empty() {
@@ -266,6 +272,8 @@ pub fn screen(output: Option<&str>) -> Option<Screen> {
     };
     Some(Screen {
         output: Rect::of(&out["rect"]),
+        num: ws["num"].as_i64().unwrap_or(-1),
+        area: Rect::of(&ws["rect"]),
         root,
     })
 }

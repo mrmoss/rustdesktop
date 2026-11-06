@@ -190,15 +190,6 @@ impl SheetInner {
         }
     }
 
-    /// While typing into the sheet (search, Wi-Fi password, nickname) grab
-    /// the keyboard outright: some compositors (phoc) don't give layer
-    /// surfaces keyboard focus "on demand", so typing and pasting would fail.
-    pub fn set_typing(&self, _on: bool) {
-        // Sheets with text fields (drawer search, Wi-Fi password, nickname)
-        // are created with an exclusive keyboard instead: phoc ignores
-        // keyboard-mode changes on a surface that's already on screen.
-    }
-
     fn unmap(&self) {
         self.shown.set(false);
         match &self.window {

@@ -134,6 +134,11 @@ pub const KEYS: &[Key] = &[
         help: "auto | side | stacked  (how Split places two apps; auto = side by side on a wide screen)",
     },
     Key {
+        name: "cursor_blink",
+        default: "standard",
+        help: "standard | slow | fast | off  (text cursor blinking, in RustTouch and in apps)",
+    },
+    Key {
         name: "compositor",
         default: "auto",
         help: "auto | sway | phoc | labwc  (next login; auto = sway if installed - split screen needs sway)",

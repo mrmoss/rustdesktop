@@ -224,5 +224,76 @@ pub fn navbar(shell: &Shell) -> gtk::Box {
             tap: None,
         },
     );
+
+    // swipe sideways along the bar: previous / next app or window group
+    // (like Android's gesture bar). On sway the groups slide with the finger.
+    let g = gtk::GestureDrag::new();
+    g.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let claimed = std::rc::Rc::new(std::cell::Cell::new(false));
+    let slide: std::rc::Rc<std::cell::RefCell<Option<crate::tiling::SlideDrag>>> =
+        std::rc::Rc::new(std::cell::RefCell::new(None));
+    let samples = std::rc::Rc::new(std::cell::RefCell::new(Vec::<(i64, f64)>::new()));
+    {
+        let (c, sm) = (claimed.clone(), samples.clone());
+        g.connect_drag_begin(move |_, _, _| {
+            c.set(false);
+            sm.borrow_mut().clear();
+        });
+    }
+    {
+        let (c, s, sl, sm) = (
+            claimed.clone(),
+            shell.clone(),
+            slide.clone(),
+            samples.clone(),
+        );
+        g.connect_drag_update(move |g, dx, dy| {
+            if !c.get() {
+                if dx.abs() > 12.0 && dx.abs() > dy.abs() * 2.0 {
+                    c.set(true);
+                    let _ = g.set_state(gtk::EventSequenceState::Claimed); // no button press
+                    if crate::tiling::enabled(&s) {
+                        // finger moving left = towards the next group
+                        *sl.borrow_mut() = crate::tiling::SlideDrag::begin(&s, dx < 0.0);
+                    }
+                } else {
+                    return;
+                }
+            }
+            if let Some(d) = sl.borrow().as_ref() {
+                d.set(dx);
+            }
+            let mut v = sm.borrow_mut();
+            v.push((gtk::glib::monotonic_time(), dx));
+            if v.len() > 10 {
+                v.remove(0);
+            }
+        });
+    }
+    let s = shell.clone();
+    let (sl, sm) = (slide.clone(), samples.clone());
+    g.connect_drag_end(move |_, dx, _| {
+        if !claimed.get() {
+            return;
+        }
+        let vel = gestures::velocity(&sm.borrow());
+        match sl.borrow_mut().take() {
+            Some(d) => d.end(dx, vel),
+            None if dx.abs() > 60.0 => {
+                // phoc/labwc: just switch
+                crate::shell::do_action(&s, if dx > 0.0 { "prev-group" } else { "next-group" });
+            }
+            None => {}
+        }
+    });
+    {
+        let sl = slide.clone();
+        g.connect_cancel(move |_, _| {
+            if let Some(d) = sl.borrow_mut().take() {
+                d.end(0.0, 0.0);
+            }
+        });
+    }
+    bar.add_controller(g);
     bar
 }

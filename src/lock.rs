@@ -28,7 +28,7 @@ pub struct LockInner {
 
 pub type Lock = Rc<LockInner>;
 
-enum Key {
+pub enum Key {
     Char(String),
     Back,
     Enter,
@@ -272,7 +272,7 @@ const SYMS: &[&str] = &[
     "ABC { SPACE } ENTER",
 ];
 
-fn keyboard(on_key: Rc<dyn Fn(Key)>) -> gtk::Widget {
+pub fn keyboard(on_key: Rc<dyn Fn(Key)>) -> gtk::Widget {
     let stack = gtk::Stack::new();
     stack.add_css_class("osk");
     for (name, rows) in [("lower", LOWER), ("upper", UPPER), ("syms", SYMS)] {
@@ -292,7 +292,7 @@ fn keyboard(on_key: Rc<dyn Fn(Key)>) -> gtk::Widget {
                 let b = gtk::Button::with_label(label);
                 b.add_css_class("key");
                 b.set_hexpand(true);
-                b.set_focusable(false); // keep focus in the password entry
+                b.set_focusable(false); // keep focus in the text field
                 if tok == "SPACE" {
                     b.set_width_request(150);
                 }

@@ -301,11 +301,11 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
     let s_typing = shell.clone();
     let nets = netlist::build(
         move || {
-            s_back.quick.set_typing(false);
+            s_back.sheet_keyboard(shell::Overlay::Quick, false);
             p2.set_visible_child_name("main");
         },
         Rc::new(move || shell::refresh_soon(&s)),
-        Rc::new(move |on: bool| s_typing.quick.set_typing(on)),
+        Rc::new(move |on: bool| s_typing.sheet_keyboard(shell::Overlay::Quick, on)),
     );
     pages.add_named(&nets.root, Some("list"));
 
@@ -440,13 +440,43 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
     panel.append(&pages);
 
     // long-press Wi-Fi / Bluetooth -> network / device list
-    for (button, kind) in [(&wifi.button, Kind::Wifi), (&bt.button, Kind::Bluetooth)] {
+    for (tile, kind) in [(&wifi, Kind::Wifi), (&bt, Kind::Bluetooth)] {
+        let button = &tile.button;
+        let sub = tile.sub.clone();
+        let saved: std::rc::Rc<std::cell::RefCell<String>> = Default::default();
+        // The page only changes once the finger is lifted: swapping pages
+        // while the touch is still on the button left GTK holding a touch
+        // that never ended, and the pull-down stopped responding.
         let lp = gtk::GestureLongPress::new();
-        let (p, n) = (pages.clone(), nets.clone());
+        let held = std::rc::Rc::new(std::cell::Cell::new(false));
+        // feedback while holding: an outline grows in; once held long enough
+        // the tile glows and says "Release for the list"
+        {
+            let b = button.clone();
+            lp.connect_begin(move |_, _| b.add_css_class("lp-pressing"));
+        }
+        let (h, b, sl, sv) = (held.clone(), button.clone(), sub.clone(), saved.clone());
         lp.connect_pressed(move |g, _, _| {
             let _ = g.set_state(gtk::EventSequenceState::Claimed); // don't toggle
-            p.set_visible_child_name("list");
-            netlist::open(&n, kind);
+            h.set(true);
+            b.add_css_class("lp-ready");
+            *sv.borrow_mut() = sl.text().to_string();
+            sl.set_text("Let go for the list");
+        });
+        let (p, n, b) = (pages.clone(), nets.clone(), button.clone());
+        lp.connect_end(move |_, _| {
+            b.remove_css_class("lp-pressing");
+            b.remove_css_class("lp-ready");
+            if held.get() {
+                sub.set_text(&saved.borrow());
+            }
+            if held.replace(false) {
+                let (p, n) = (p.clone(), n.clone());
+                let _ = glib::idle_add_local_once(move || {
+                    p.set_visible_child_name("list");
+                    netlist::open(&n, kind);
+                });
+            }
         });
         button.add_controller(lp);
     }

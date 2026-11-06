@@ -17,9 +17,8 @@ pub fn apply(cfg: &Config) {
     let dark = config::palette(cfg).dark;
     if let Some(settings) = gtk::Settings::default() {
         settings.set_gtk_application_prefer_dark_theme(dark);
-        // calmer text cursor (full on+off cycle in ms; GTK's default is 1200)
-        settings.set_gtk_cursor_blink_time(2000);
     }
+    apply_cursor_blink(cfg);
 
     let css = format!(
         "{}\n{}\n{}\n{}",
@@ -55,6 +54,53 @@ pub fn apply(cfg: &Config) {
             provider.load_from_data(&css);
         }
     });
+}
+
+/// (blinks?, full on+off cycle in ms) for `cursor_blink`.
+fn blink(cfg: &Config) -> (bool, i32) {
+    match cfg.get("cursor_blink").as_str() {
+        "off" => (false, 1200),
+        "slow" => (true, 2000),
+        "fast" => (true, 800),
+        _ => (true, 1200), // GNOME's standard
+    }
+}
+
+thread_local! {
+    static BLINK_WATCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Text cursor blinking, for RustTouch's own windows (lock screen, search)
+/// and for apps: GTK apps, Firefox and many terminals read GNOME's
+/// cursor-blink settings, so those are set too.
+pub fn apply_cursor_blink(cfg: &Config) {
+    let (on, ms) = blink(cfg);
+    if let Some(settings) = gtk::Settings::default() {
+        settings.set_gtk_cursor_blink(on);
+        settings.set_gtk_cursor_blink_time(ms);
+        // the desktop portal can push its own value later: keep ours
+        if !BLINK_WATCH.with(|w| w.replace(true)) {
+            settings.connect_gtk_cursor_blink_time_notify(|s| {
+                let (_, ms) = blink(&Config::load());
+                if s.gtk_cursor_blink_time() != ms {
+                    s.set_gtk_cursor_blink_time(ms);
+                }
+            });
+        }
+    }
+    let schema = "org.gnome.desktop.interface";
+    for (key, value) in [
+        ("cursor-blink", on.to_string()),
+        ("cursor-blink-time", ms.to_string()),
+    ] {
+        let _ = std::process::Command::new("gsettings")
+            .args(["set", schema, key, &value])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|mut c| std::thread::spawn(move || c.wait()));
+    }
 }
 
 fn colors(cfg: &Config, _dark: bool) -> String {

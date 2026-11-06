@@ -39,6 +39,8 @@ pub enum Event {
     Layout,
     /// sway: a window was created (container id)
     NewWindow(i64),
+    /// `rusttouch --do <action>` (touchpad gestures, scripts, key bindings)
+    Action(String),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -71,6 +73,9 @@ pub struct ShellInner {
     toplevels: RefCell<Vec<Toplevel>>,
     mru: RefCell<Vec<u32>>,
     previews: RefCell<HashMap<u32, PathBuf>>,
+    /// sway: screenshots by sway window id (no guessing from titles, which
+    /// terminals change all the time)
+    con_previews: RefCell<HashMap<i64, PathBuf>>,
     toplevel_listeners: RefCell<Vec<Box<dyn Fn()>>>,
     capture_seq: Cell<u32>,
 
@@ -113,6 +118,10 @@ pub struct ShellInner {
     /// when an app was last launched from home/drawer (sway keeps home up until it shows)
     launched_at: Cell<i64>,
     refit_gen: Cell<u32>,
+    /// built-in keyboards inside the app drawer and the pull-down (typing in
+    /// RustTouch's own text fields never depends on the on-screen keyboard
+    /// app, which can end up underneath them)
+    sheet_kbds: RefCell<Vec<(Overlay, gtk::Widget)>>,
     kb_listeners: RefCell<Vec<Box<dyn Fn(bool)>>>,
     home_ui: RefCell<Option<home::Home>>,
     display_gen: Cell<u32>,
@@ -276,6 +285,7 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         toplevels: RefCell::new(Vec::new()),
         mru: RefCell::new(Vec::new()),
         previews: RefCell::new(HashMap::new()),
+        con_previews: RefCell::new(HashMap::new()),
         toplevel_listeners: RefCell::new(Vec::new()),
         capture_seq: Cell::new(0),
         auto_rotate: Cell::new(cfg.on("auto_rotate")),
@@ -309,6 +319,7 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         kb_check_at: Cell::new(0),
         launched_at: Cell::new(0),
         refit_gen: Cell::new(0),
+        sheet_kbds: RefCell::new(Vec::new()),
         kb_listeners: RefCell::new(Vec::new()),
         home_ui: RefCell::new(None),
         display_gen: Cell::new(0),
@@ -323,6 +334,16 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
     });
     SELF.with(|me| *me.borrow_mut() = Some(Rc::downgrade(&shell)));
 
+    // a sheet's keyboard goes away with the sheet
+    for o in [Overlay::Drawer, Overlay::Quick] {
+        let s = shell.clone();
+        shell.sheet(o).on_progress(move |p| {
+            if p <= 0.001 {
+                s.sheet_keyboard(o, false);
+            }
+        });
+    }
+
     // tray first: quick settings lists its apps
     if layered {
         let t = tray::start(&shell.tray_area);
@@ -335,6 +356,8 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
     shell.drawer.set_content(&dc, &dp);
     let (qc, qp) = quick::build(&shell);
     shell.quick.set_content(&qc, &qp);
+    shell.add_sheet_keyboard(Overlay::Drawer, &dc);
+    shell.add_sheet_keyboard(Overlay::Quick, &qp);
     // the pull-down covers the top bar's space (the bar fades away as you
     // pull - everything on it is in the panel) and stops above the button bar
     if layered {
@@ -459,6 +482,9 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
     }
     watch_config(&shell);
     crate::tiling::start(&shell);
+    if layered {
+        start_ctl(shell.tx());
+    }
 
     if layered {
         // monitors: apply saved settings now and whenever one is plugged in
@@ -515,7 +541,7 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
                 .as_ref()
                 .map(|l| l.is_locked())
                 .unwrap_or(false);
-            if !locked && !s.blanked.get() && !s.osk_visible.get() {
+            if !locked && !s.blanked.get() {
                 capture_then(&s, || {});
             }
             glib::ControlFlow::Continue
@@ -580,6 +606,7 @@ fn handle_event(shell: &Shell, ev: Event) {
         }
         Event::Layout => crate::tiling::layout_changed(shell),
         Event::NewWindow(id) => crate::tiling::on_new_window(id),
+        Event::Action(a) => do_action(shell, &a),
         Event::Idle(what) => match what.as_str() {
             "blank" => {
                 if shell.cfg().on("lock_on_screen_off") {
@@ -657,6 +684,12 @@ fn text_input(shell: &Shell, active: bool) {
     shell.osk_gen.set(gen);
     let now = glib::monotonic_time();
     if active {
+        // The lock screen has its own keyboard, and our sheets (app drawer,
+        // pull-down) open the keyboard themselves when you tap their text
+        // fields - GTK focusing a search box on its own must not pop it up.
+        if shell.is_locked() || shell.any_showing() {
+            return;
+        }
         shell.last_activate.set(now);
         shell.show_keyboard(true);
     } else if now - shell.last_activate.get() < 400_000 {
@@ -869,6 +902,9 @@ fn reload_config(shell: &Shell) {
     }
     if changed("show_cursor") {
         shell.apply_cursor();
+    }
+    if changed("cursor_blink") {
+        crate::theme::apply_cursor_blink(&new);
     }
     if changed("shell_output") || old.prefixed("output.") != new.prefixed("output.") {
         apply_displays(shell);
@@ -1304,6 +1340,69 @@ impl ShellInner {
         });
     }
 
+    /// Keyboard for a text field in one of our sheets (tapped, or a prompt in
+    /// it opened / closed). The normal on-screen keyboard - restarted first if
+    /// it was started before the sheet opened, because it would sit underneath
+    /// it. Only without an on-screen keyboard program is the built-in one used.
+    pub fn sheet_keyboard(&self, o: Overlay, on: bool) {
+        if self.keyboard == Osk::Missing {
+            for (which, kb) in self.sheet_kbds.borrow().iter() {
+                if *which == o {
+                    kb.set_visible(on);
+                }
+            }
+            return;
+        }
+        // Keep the sheet clear of the keyboard: the keyboard app sits on the
+        // same layer as our sheets and can end up underneath them, so the
+        // sheet is shortened to stop where the keyboard starts.
+        self.sheet_clear_of_keyboard(o, on);
+        if !on {
+            if self.osk_visible.get() {
+                self.show_keyboard(false);
+            }
+            return;
+        }
+        self.show_keyboard(true);
+    }
+
+    /// Height the on-screen keyboard takes (its settings, or wvkbd's defaults).
+    fn keyboard_height(&self) -> i32 {
+        let (_, _, w, h) = screen_size();
+        let cfg = self.cfg();
+        let (key, default) = if w > h {
+            ("keyboard_height_landscape", 120)
+        } else {
+            ("keyboard_height", 250)
+        };
+        let px = cfg.get(key).parse::<i32>().unwrap_or(default);
+        if self.keyboard == Osk::Squeekboard {
+            px.max(h / 3)
+        } else {
+            px
+        }
+    }
+
+    fn sheet_clear_of_keyboard(&self, o: Overlay, on: bool) {
+        let Some(w) = self.sheet(o).window() else {
+            return;
+        };
+        let kb = if on { self.keyboard_height() } else { 0 };
+        match o {
+            Overlay::Quick => {
+                let (_, nav) = theme::bar_sizes(&self.cfg());
+                layer::set_margins(w, 0, 0, nav + kb, 0);
+            }
+            _ => layer::set_margins(w, 0, 0, kb, 0),
+        }
+    }
+
+    fn add_sheet_keyboard(&self, o: Overlay, into: &gtk::Box) {
+        let kb = embedded_keyboard();
+        into.append(&kb);
+        self.sheet_kbds.borrow_mut().push((o, kb));
+    }
+
     /// Run `f(visible)` whenever the on-screen keyboard shows/hides.
     pub fn on_keyboard(&self, f: impl Fn(bool) + 'static) {
         self.kb_listeners.borrow_mut().push(Box::new(f));
@@ -1643,6 +1742,22 @@ impl ShellInner {
         self.previews.borrow().get(&key).cloned()
     }
 
+    /// sway: the screenshot of a window by its sway id.
+    pub fn con_preview(&self, id: i64) -> Option<PathBuf> {
+        self.con_previews.borrow().get(&id).cloned()
+    }
+
+    /// Forget screenshots of sway windows that are gone.
+    pub fn prune_con_previews(&self, alive: &[i64]) {
+        self.con_previews.borrow_mut().retain(|id, path| {
+            let keep = alive.contains(id);
+            if !keep {
+                let _ = std::fs::remove_file(path);
+            }
+            keep
+        });
+    }
+
     pub fn activate(&self, t: &Toplevel) {
         if let Some(wl) = &self.wl {
             wl.activate(t);
@@ -1750,26 +1865,22 @@ pub fn capture_then(shell: &Shell, f: impl FnOnce() + 'static) {
         return;
     }
 
-    // (window key, "x,y wxh") for each window to capture
-    let mut jobs: Vec<(u32, String)> = Vec::new();
-    if crate::tiling::enabled(shell) {
-        let tl = shell.toplevels.borrow().clone();
-        for w in crate::tiling::visible_windows() {
-            let key = tl
-                .iter()
-                .find(|t| t.app_id == w.app_id && t.title == w.title)
-                .or_else(|| tl.iter().find(|t| t.app_id == w.app_id))
-                .map(|t| t.key);
-            if let Some(key) = key {
-                let r = w.rect;
-                jobs.push((
-                    key,
-                    format!("{},{} {}x{}", r.x, r.y, r.w.max(1), r.h.max(1)),
-                ));
-            }
-        }
+    #[derive(Clone, Copy)]
+    enum Slot {
+        Window(u32),
+        Con(i64),
     }
-    if jobs.is_empty() {
+    // (what it's for, "x,y wxh")
+    let mut jobs: Vec<(Slot, String)> = Vec::new();
+    if crate::tiling::enabled(shell) {
+        for w in crate::tiling::visible_windows() {
+            let r = w.rect;
+            jobs.push((
+                Slot::Con(w.id),
+                format!("{},{} {}x{}", r.x, r.y, r.w.max(1), r.h.max(1)),
+            ));
+        }
+    } else {
         // the app area: the whole screen minus our bars
         let key = shell
             .active_key()
@@ -1778,7 +1889,7 @@ pub fn capture_then(shell: &Shell, f: impl FnOnce() + 'static) {
             let (x, y, w, h) = screen_size();
             let (top, nav) = shell.bar_heights();
             jobs.push((
-                key,
+                Slot::Window(key),
                 format!("{},{} {}x{}", x, y + top, w, (h - top - nav).max(1)),
             ));
         }
@@ -1788,7 +1899,7 @@ pub fn capture_then(shell: &Shell, f: impl FnOnce() + 'static) {
         return;
     }
 
-    let jobs: Vec<(u32, String, PathBuf)> = jobs
+    let jobs: Vec<(Slot, String, PathBuf)> = jobs
         .into_iter()
         .map(|(k, g)| {
             let seq = shell.capture_seq.get().wrapping_add(1);
@@ -1814,7 +1925,10 @@ pub fn capture_then(shell: &Shell, f: impl FnOnce() + 'static) {
                     {
                         eprintln!("rusttouch: recents previews working (grim)");
                     }
-                    let old = shell.previews.borrow_mut().insert(key, path);
+                    let old = match key {
+                        Slot::Window(k) => shell.previews.borrow_mut().insert(k, path),
+                        Slot::Con(id) => shell.con_previews.borrow_mut().insert(id, path),
+                    };
                     if let Some(old) = old {
                         let _ = std::fs::remove_file(old);
                     }
@@ -1823,6 +1937,11 @@ pub fn capture_then(shell: &Shell, f: impl FnOnce() + 'static) {
             }
         }
         f();
+        if crate::tiling::enabled(&shell) {
+            // decode the new screenshots now, so a group swipe starts instantly
+            let s = shell.clone();
+            let _ = glib::idle_add_local_once(move || crate::tiling::warm_pictures(&s));
+        }
     });
 }
 
@@ -1842,11 +1961,167 @@ pub fn go_home(shell: &Shell) {
 pub fn toggle_recents(shell: &Shell) {
     crate::tiling::close_arrange();
     if shell.recents.is_open() {
+        // ■ again (or a quick double tap), like Android: jump back to the
+        // previous app / window group
         shell.hide_all();
+        switch_to_last(shell);
         return;
     }
     let s = shell.clone();
     capture_then(shell, move || s.show(Overlay::Recents));
+}
+
+/// A built-in keyboard that types into whatever text field has focus in its
+/// window. Enter "presses" the field and puts the keyboard away.
+fn embedded_keyboard() -> gtk::Widget {
+    use crate::lock::Key;
+    let me: Rc<RefCell<Option<gtk::Widget>>> = Rc::new(RefCell::new(None));
+    let m = me.clone();
+    let kb = crate::lock::keyboard(Rc::new(move |k| {
+        let Some(w) = m.borrow().clone() else { return };
+        let Some(target) = w.root().and_then(|r| r.focus()) else {
+            return;
+        };
+        let Ok(ed) = target.clone().dynamic_cast::<gtk::Editable>() else {
+            return;
+        };
+        match k {
+            Key::Char(c) => {
+                if let Some((a, b)) = ed.selection_bounds() {
+                    ed.delete_text(a, b);
+                }
+                let mut pos = ed.position();
+                ed.insert_text(&c, &mut pos);
+                ed.set_position(pos);
+            }
+            Key::Back => {
+                if let Some((a, b)) = ed.selection_bounds() {
+                    ed.delete_text(a, b);
+                } else {
+                    let p = ed.position();
+                    if p > 0 {
+                        ed.delete_text(p - 1, p);
+                    }
+                }
+            }
+            Key::Enter => {
+                let _ = target.activate();
+                w.set_visible(false);
+            }
+        }
+    }));
+    kb.add_css_class("sheet-osk");
+    kb.set_visible(false);
+    *me.borrow_mut() = Some(kb.clone());
+    kb
+}
+
+/// The previously used app (phoc/labwc) or window group (sway).
+pub fn switch_to_last(shell: &Shell) {
+    let mru = shell.toplevels_mru();
+    if crate::tiling::enabled(shell) {
+        crate::tiling::last_group(&mru, shell.home_visible());
+        shell.go_app();
+        return;
+    }
+    let pick = if shell.home_visible() {
+        mru.first()
+    } else {
+        mru.get(1)
+    };
+    if let Some(t) = pick.cloned() {
+        shell.activate(&t);
+    }
+}
+
+/// Next/previous app or window group (gestures).
+fn cycle(shell: &Shell, forward: bool) {
+    if crate::tiling::enabled(shell) {
+        let s = shell.clone();
+        // a screenshot of what's leaving, for recents
+        capture_then(shell, move || {
+            s.hide_all();
+            crate::tiling::slide_switch(&s, forward);
+        });
+        return;
+    }
+    let mru = shell.toplevels_mru();
+    let pick = if forward { mru.last() } else { mru.get(1) };
+    if let Some(t) = pick.cloned() {
+        shell.activate(&t);
+    }
+}
+
+/// Things gestures and `rusttouch --do <name>` can do. Names match the
+/// gesture settings.
+pub fn do_action(shell: &Shell, name: &str) {
+    if shell.is_locked() {
+        return;
+    }
+    match name {
+        "back" => shell.back(),
+        "home" => go_home(shell),
+        "recents" => toggle_recents(shell),
+        "apps" => shell.toggle(Overlay::Drawer),
+        "quick" => shell.toggle(Overlay::Quick),
+        "next-group" => cycle(shell, true),
+        "prev-group" => cycle(shell, false),
+        "last-group" => {
+            shell.hide_all();
+            switch_to_last(shell);
+        }
+        "keyboard" => {
+            let up = shell.keyboard_up();
+            shell.show_keyboard(!up);
+        }
+        "close-window" => {
+            if crate::tiling::enabled(shell) {
+                crate::sway::run("kill");
+            } else if let Some(t) = shell.toplevels_mru().into_iter().next() {
+                shell.close_toplevel(&t);
+            }
+        }
+        "lock" => shell.lock(),
+        "none" | "" => {}
+        other => eprintln!("rusttouch: unknown action {other:?}"),
+    }
+}
+
+/// $XDG_RUNTIME_DIR/rusttouch/ctl - `rusttouch --do <action>` writes here.
+pub fn ctl_path() -> PathBuf {
+    sys::runtime_dir().join("ctl")
+}
+
+fn start_ctl(tx: mpsc::Sender<Event>) {
+    let path = ctl_path();
+    let _ = std::fs::remove_file(&path);
+    let made = std::process::Command::new("mkfifo")
+        .arg(&path)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !made {
+        eprintln!(
+            "rusttouch: couldn't create {} - gestures won't work",
+            path.display()
+        );
+        return;
+    }
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        loop {
+            // blocks until someone writes
+            let Ok(f) = std::fs::File::open(&path) else {
+                return;
+            };
+            for line in std::io::BufReader::new(f).lines().map_while(Result::ok) {
+                let a = line.trim().to_string();
+                if !a.is_empty() && tx.send(Event::Action(a)).is_err() {
+                    return;
+                }
+            }
+        }
+    });
 }
 
 /// Poll system status on a worker thread and push it to listeners.

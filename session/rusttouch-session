@@ -1,0 +1,69 @@
+#!/bin/sh
+# Login-manager entry point. Picks the compositor from `compositor =` in
+# ~/.config/rusttouch/rusttouch.conf (Settings > Windows):
+#   auto (default): sway if installed (split screen), else phoc, else labwc
+# RUSTTOUCH_COMPOSITOR=sway|phoc|labwc in ~/.config/rusttouch/env overrides it.
+export XDG_CURRENT_DESKTOP=rusttouch:wlroots
+export XDG_SESSION_DESKTOP=rusttouch
+export XDG_SESSION_TYPE=wayland
+export MOZ_ENABLE_WAYLAND=1
+export QT_QPA_PLATFORM="wayland;xcb"
+export GDK_BACKEND="wayland,x11"
+[ -f "$HOME/.config/rusttouch/env" ] && . "$HOME/.config/rusttouch/env"
+
+SHARE=/usr/local/share/rusttouch
+COMP="${RUSTTOUCH_COMPOSITOR:-}"
+CONF="$HOME/.config/rusttouch/rusttouch.conf"
+if [ -z "$COMP" ] && [ -f "$CONF" ]; then
+  COMP=$(sed -n 's/^[[:space:]]*compositor[[:space:]]*=[[:space:]]*\([a-z]*\).*/\1/p' "$CONF" | tail -n1)
+fi
+[ "$COMP" = auto ] && COMP=""
+if [ -n "$COMP" ] && ! command -v "$COMP" >/dev/null; then
+  echo "rusttouch: $COMP isn't installed, choosing automatically" >&2
+  COMP=""
+fi
+if [ -z "$COMP" ]; then
+  if command -v sway >/dev/null; then COMP=sway
+  elif command -v phoc >/dev/null; then COMP=phoc
+  else COMP=labwc; fi
+fi
+
+# the built-in panel (touches follow it when it rotates)
+PANEL=""
+for s in /sys/class/drm/card*-eDP-*/status /sys/class/drm/card*-DSI-*/status; do
+  [ -f "$s" ] && [ "$(cat "$s")" = connected ] && { PANEL=$(basename "$(dirname "$s")"); PANEL=${PANEL#*-}; break; }
+done
+
+case "$COMP" in
+sway)
+  RUN="${XDG_RUNTIME_DIR:-/tmp}/rusttouch/sway"
+  mkdir -p "$RUN"
+  {
+    cat "$SHARE/sway/config"
+    [ -n "$PANEL" ] && echo "input type:touch map_to_output $PANEL"
+    [ -n "$PANEL" ] && echo "input type:tablet_tool map_to_output $PANEL"
+    [ -f "$HOME/.config/rusttouch/sway.conf" ] && echo "include $HOME/.config/rusttouch/sway.conf"
+  } > "$RUN/config"
+  exec sway -c "$RUN/config"
+  ;;
+phoc)
+  # every app window maximized between the bars, phone-style
+  export PHOC_DEBUG="${PHOC_DEBUG:+$PHOC_DEBUG,}auto-maximize"
+  gsettings set sm.puri.phoc auto-maximize true 2>/dev/null
+  exec phoc -X -C "$SHARE/phoc.ini" -E /usr/local/bin/rusttouch-shell
+  ;;
+labwc)
+  # map the touchscreen to the built-in panel so touches rotate with it
+  RUN="${XDG_RUNTIME_DIR:-/tmp}/rusttouch/labwc"
+  mkdir -p "$RUN"
+  cp "$SHARE/labwc/autostart" "$RUN/autostart"
+  OUT="$PANEL"
+  if [ -n "$OUT" ]; then
+    sed "s#</labwc_config>#  <touch mapToOutput=\"$OUT\" mouseEmulation=\"no\"/>\n</labwc_config>#" \
+      "$SHARE/labwc/rc.xml" > "$RUN/rc.xml"
+  else
+    cp "$SHARE/labwc/rc.xml" "$RUN/rc.xml"
+  fi
+  exec labwc -C "$RUN"
+  ;;
+esac

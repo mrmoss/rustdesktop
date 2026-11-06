@@ -1,0 +1,6 @@
+# Installed to /etc/udev/rules.d/70-rusttouch-buttons.rules
+# Give the logged-in user read access to *button* devices (power, volume,
+# brightness, tablet button arrays) - never full keyboards - so rusttouch can
+# handle short/long/double power presses and hold-to-repeat volume.
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEY}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Power Button", TAG+="uaccess"

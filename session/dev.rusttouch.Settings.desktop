@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=RustTouch Settings
+Comment=Theme, clock, displays, keyboard, power and startup apps for RustTouch
+Exec=rusttouch-settings
+Icon=dev.rusttouch.Settings
+Type=Application
+Categories=Settings;
+OnlyShowIn=rusttouch;
+StartupWMClass=dev.rusttouch.Settings

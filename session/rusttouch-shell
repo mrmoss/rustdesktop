@@ -1,0 +1,19 @@
+#!/bin/sh
+# Started by the compositor. Logs to $XDG_RUNTIME_DIR/rusttouch/rusttouch.log
+mkdir -p "${XDG_RUNTIME_DIR:-/tmp}/rusttouch"
+
+# Tell D-Bus/systemd-started helpers (portals, keyring, ...) about this
+# Wayland session. Without this, GTK apps wait ~25s at startup for a desktop
+# portal that never answers - that was the long black screen at login and
+# the slow first app launches.
+dbus-update-activation-environment --systemd \
+  WAYLAND_DISPLAY DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP 2>/dev/null
+# portals left over from an earlier session have the wrong environment
+timeout 5 systemctl --user stop xdg-desktop-portal.service \
+  xdg-desktop-portal-gnome.service xdg-desktop-portal-gtk.service 2>/dev/null
+
+# rusttouch itself never needs portals or the accessibility bus (it strips
+# these again for the apps it launches)
+export GDK_DEBUG=no-portals
+export GTK_A11Y=none
+exec "${RUSTTOUCH_BIN:-rusttouch}" >"${XDG_RUNTIME_DIR:-/tmp}/rusttouch/rusttouch.log" 2>&1

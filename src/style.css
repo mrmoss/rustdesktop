@@ -1,0 +1,208 @@
+/* rusttouch theme. Colors (@rd_*) and the wallpaper are generated from
+   ~/.config/rusttouch/rusttouch.conf. Override anything in ~/.config/rusttouch/style.css */
+
+window.rusttouch-transparent { background: transparent; }
+
+/* instant press feedback (GTK's default fades feel laggy on touch) */
+button { transition: none; }
+
+/* ---------- top bar ---------- */
+.topbar {
+  background: @rd_bar_bg;
+  color: @rd_bar_fg;
+  padding: 0 14px;
+  min-height: 32px;
+}
+.bar-clock { font-weight: 700; }
+
+/* ---------- nav bar ---------- */
+.navbar { background: @rd_nav_bg; min-height: 56px; }
+.navbar button {
+  background: none; border: none; box-shadow: none;
+  color: @rd_nav_fg; font-size: 20px;
+  min-width: 96px; min-height: 48px; border-radius: 24px;
+}
+.navbar button:active { background: alpha(@rd_nav_fg, 0.18); }
+
+/* ---------- home (background comes from the config) ---------- */
+.home { color: #fff; }
+.home-clock { font-size: 76px; font-weight: 200; }
+.home-date { font-size: 18px; opacity: 0.8; }
+.hint { opacity: 0.55; font-size: 13px; margin-bottom: 6px; }
+.dock {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 28px;
+  padding: 8px;
+  margin: 8px 14px 14px 14px;
+}
+.home .tile { color: #fff; }
+
+/* ---------- app tiles ---------- */
+.tile {
+  background: none; border: none; box-shadow: none;
+  color: @rd_fg; padding: 8px; border-radius: 16px;
+}
+.tile:active { background: alpha(@rd_fg, 0.16); }
+.tile label { font-size: 12px; }
+
+/* ---------- sheets ---------- */
+.scrim { background: #000; }
+.overlay-bg { background: @rd_panel_bg; color: @rd_fg; }
+.handle {
+  background: alpha(@rd_fg, 0.4);
+  border-radius: 3px; min-height: 5px; min-width: 48px;
+  margin: 10px;
+}
+searchentry {
+  margin: 0 16px 10px 16px; min-height: 42px; border-radius: 21px;
+}
+.pill { border-radius: 18px; padding: 4px 14px; }
+
+/* ---------- quick settings shade ---------- */
+.shade {
+  background: @rd_panel_bg;
+  color: @rd_fg;
+  padding: 18px 16px 4px 16px;
+  border-radius: 0 0 28px 28px;
+}
+.qs-time { font-size: 44px; font-weight: 300; }
+.qs-date { opacity: 0.75; }
+.qs-batt { font-size: 15px; opacity: 0.85; }
+.qs-tile {
+  border-radius: 20px; border: none; box-shadow: none;
+  background: @rd_tile_bg; color: @rd_fg;
+  padding: 12px; min-height: 64px;
+}
+.qs-tile:checked { background: @rd_accent; color: @rd_accent_fg; }
+.qs-title { font-weight: 700; }
+.qs-sub { font-size: 12px; opacity: 0.8; }
+.qs-slider { padding: 0 6px; }
+.qs-slider scale trough { min-height: 12px; border-radius: 6px; }
+.qs-slider scale highlight { background: @rd_accent; border-radius: 6px; }
+.qs-slider scale slider { min-width: 26px; min-height: 26px; }
+.power-btn { min-height: 56px; }
+
+/* ---------- recents ---------- */
+.recents { background: alpha(@rd_panel_bg, 0.94); color: @rd_fg; }
+.rcard { color: @rd_fg; }
+.rcard-frame {
+  border-radius: 22px;
+  background: @rd_card_bg;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+.rcard-empty { background: @rd_card_bg; }
+
+/* ---------- lock screen ---------- */
+.lock { color: #fff; }
+.lock-clock { font-size: 88px; font-weight: 200; }
+.lock-entry { min-height: 46px; border-radius: 23px; font-size: 18px; }
+.lock-status { color: #ffb4ab; min-height: 20px; }
+
+/* built-in lock keyboard */
+.osk { padding: 4px 0; }
+.key {
+  min-height: 48px; min-width: 0; padding: 0;
+  border-radius: 10px; border: none; box-shadow: none;
+  background: rgba(255, 255, 255, 0.16); color: #fff;
+  font-size: 18px;
+}
+.key:active { background: rgba(255, 255, 255, 0.38); }
+.key-special { background: rgba(255, 255, 255, 0.08); font-size: 15px; }
+
+/* ---------- volume / brightness popup ---------- */
+.osd {
+  background: @rd_panel_bg; color: @rd_fg;
+  border-radius: 24px; padding: 12px 18px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  margin: 8px;
+}
+.osd progressbar trough { min-height: 8px; border-radius: 4px; }
+.osd progressbar progress { min-height: 8px; border-radius: 4px; background: @rd_accent; }
+
+/* ---------- on-screen keyboard "hide" button ---------- */
+.kb-hide {
+  background: @rd_panel_bg; color: @rd_fg;
+  border-radius: 18px; padding: 4px 12px; min-height: 30px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35); border: none;
+}
+
+/* ---------- quick settings extras ---------- */
+.qs-round {
+  min-width: 36px; min-height: 36px; padding: 0; border-radius: 18px;
+  background: @rd_tile_bg; color: @rd_fg; border: none; box-shadow: none;
+}
+.qs-list-title { font-size: 20px; font-weight: 600; }
+.qs-list { background: none; }
+.qs-list row { border-radius: 14px; }
+.qs-list-row { padding: 10px 8px; }
+
+/* ---------- drawer: long-press actions ---------- */
+.action-bar {
+  background: @rd_tile_bg; border-radius: 22px;
+  padding: 8px 10px; margin: 8px 12px 12px 12px;
+}
+
+/* ---------- home grid ---------- */
+.home { color: #fff; }
+.home .tile { color: #fff; }
+.home-cell { border-radius: 18px; margin: 2px; }
+.home-cell.drop-target { background: rgba(255, 255, 255, 0.18); }
+.home-cell.lifted { opacity: 0.3; }
+.floating-icon { opacity: 0.9; }
+.remove-zone {
+  background: rgba(242, 139, 130, 0.35); color: #fff;
+  border: 2px dashed rgba(255, 255, 255, 0.6); border-radius: 18px;
+  padding: 14px; margin: 10px 14px; font-weight: 700;
+}
+.remove-zone.hot { background: rgba(242, 80, 70, 0.75); }
+.qs-list-header { font-weight: 700; font-size: 12px; opacity: 0.6; margin: 10px 8px 2px 8px; }
+
+/* ---------- tray ---------- */
+.tray-icon {
+  background: none; border: none; box-shadow: none;
+  padding: 0 3px; min-width: 0; min-height: 0;
+}
+.tray-icon:active { background: alpha(@rd_bar_fg, 0.18); border-radius: 8px; }
+.qs-section { font-weight: 700; font-size: 12px; opacity: 0.6; margin-top: 2px; }
+.qs-bg-app {
+  background: @rd_tile_bg; color: @rd_fg; border: none; box-shadow: none;
+  border-radius: 16px; padding: 6px 12px;
+}
+.qs-menu-item {
+  background: none; color: @rd_fg; border: none; box-shadow: none;
+  border-radius: 12px; padding: 10px 12px;
+}
+.qs-menu-item:active { background: @rd_tile_bg; }
+
+/* invisible touch strips that bring auto-hidden bars back */
+.edge-strip { min-height: 10px; background: rgba(0, 0, 0, 0.01); }
+.lock-message { font-size: 16px; opacity: 0.9; }
+
+/* ---- split screen (sway) ---- */
+.split-divider { background: transparent; }
+.split-pill { background: alpha(@rd_fg, 0.75); border-radius: 4px; box-shadow: 0 0 0 2px alpha(black, 0.35); }
+.split-guide { color: @rd_accent; background: transparent; }
+.arrange { background: alpha(black, 0.55); color: @rd_fg; }
+.arrange-tile {
+  background: alpha(@rd_panel_bg, 0.92); color: @rd_fg; border-radius: 22px;
+  border: 2px solid alpha(@rd_fg, 0.15); padding: 12px;
+}
+.arrange-tile.dragging { opacity: 0.8; border-color: @rd_accent; }
+.arrange-btn { padding: 4px 12px; min-height: 0; }
+.arrange-help { background: alpha(@rd_panel_bg, 0.9); color: @rd_fg; border-radius: 14px; padding: 8px 16px; }
+.arrange-done { background: @rd_accent; color: @rd_accent_fg; padding: 8px 32px; }
+.drop-hint { background: alpha(@rd_accent, 0.35); border: 3px solid @rd_accent; border-radius: 18px; }
+.rcard-btn { padding: 2px 10px; min-height: 0; font-size: 12px; }
+
+.rdrag-ghost {
+  background: alpha(@rd_panel_bg, 0.95); color: @rd_fg; border-radius: 18px;
+  padding: 12px 16px; min-width: 96px; border: 2px solid @rd_accent;
+}
+.rdrag-ghost.alone { border-style: dashed; }
+.group-frame { background: black; }
+.group-sub { border-radius: 10px; background: @rd_card_bg; }
+.sub-close {
+  background: alpha(black, 0.6); color: white; border-radius: 999px;
+  min-width: 28px; min-height: 28px; font-size: 14px; font-weight: 700;
+}
+.drop-hint.group-edge { background: alpha(@rd_accent, 0.5); border-width: 4px; }

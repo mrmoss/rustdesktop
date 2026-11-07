@@ -174,11 +174,6 @@ pub const KEYS: &[Key] = &[
         help: "both | popup | off  (the low battery warning: sound and popup, popup only, or none)",
     },
     Key {
-        name: "battery_warn_test",
-        default: "on",
-        help: "on | off  (TEST: warn at every 1% the battery goes down, to try the sound)",
-    },
-    Key {
         name: "bars_autohide",
         default: "off",
         help: "on | off  (hide both bars over apps; tap or swipe a screen edge to bring them back)",

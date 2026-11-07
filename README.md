@@ -97,7 +97,7 @@ Download `rusttouch_<version>_amd64.deb` (or `arm64` for ARM) from the
 [Releases page](../../releases), then:
 
 ```sh
-sudo apt install ./rusttouch_0.6.10_amd64.deb
+sudo apt install ./rusttouch_0.6.12_amd64.deb
 ```
 
 Restart, and on the login screen pick **RustTouch** (click your name, then the gear or session
@@ -114,8 +114,8 @@ two copies don't get mixed up.
 Rust needed:
 
 ```sh
-tar xzf rusttouch-0.6.10-linux-x86_64.tar.gz
-cd rusttouch-0.6.10-linux-x86_64
+tar xzf rusttouch-0.6.12-linux-x86_64.tar.gz
+cd rusttouch-0.6.12-linux-x86_64
 ./deps.sh       # the helpers RustTouch uses (asks for your password)
 ./install.sh    # copies it into /usr/local and adds it to the login screen
 ```
@@ -256,7 +256,7 @@ Intel/AMD and ARM on Ubuntu 24.04 (they work on 26.04 too) and puts them in a **
 
 ```sh
 # 1. bump `version` in Cargo.toml (and CHANGELOG.md) and commit it
-git tag v0.6.10
+git tag v0.6.12
 git push --tags
 # 2. wait for the "release" workflow, look over the draft under Releases, then publish it
 ```

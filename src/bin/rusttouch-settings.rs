@@ -31,8 +31,7 @@ const CSS: &str = "
 .row { padding: 12px 14px; min-height: 36px; }
 .row-sub { font-size: 12px; opacity: 0.7; }
 .nav-row { padding: 16px 14px; }
-.swatch { min-width: 44px; min-height: 44px; border-radius: 22px; padding: 0; border: 3px solid transparent; }
-.swatch.selected { border-color: currentColor; }
+.swatch { min-width: 44px; min-height: 44px; border-radius: 999px; padding: 0; margin: 6px; border: none; }
 .bg-swatch { min-width: 92px; min-height: 140px; border-radius: 16px; padding: 0; border: 3px solid transparent; }
 .bg-swatch.selected { border-color: currentColor; }
 .bg-same { background: alpha(currentColor, 0.08); font-size: 12px; }
@@ -238,7 +237,8 @@ fn update_theme_css(cfg: &Config) {
          popover row:selected, popover row:hover {{ background: alpha(@rd_accent, 0.35); border-radius: 12px; }}\n\
          check:checked, radio:checked {{ background: @rd_accent; color: #10131a; border-color: @rd_accent; }}\n\
          .bg-swatch.selected {{ border-color: @rd_accent; }}\n\
-         .swatch.selected {{ border-color: transparent; box-shadow: 0 0 0 3px {base}, 0 0 0 6px @rd_fg; color: white; font-weight: 800; font-size: 20px; text-shadow: 0 1px 3px alpha(black, 0.7); }}\n\
+         button.swatch, button.swatch:hover, button.swatch:active, button.swatch:checked, button.swatch:focus, button.swatch:focus-visible, button.swatch.selected {{ min-width: 44px; min-height: 44px; padding: 0; margin: 6px; border: none; border-radius: 999px; outline: none; box-shadow: none; }}\n\
+         button.swatch.selected, button.swatch.selected:hover, button.swatch.selected:active {{ box-shadow: 0 0 0 3px {base}, 0 0 0 6px @rd_fg; color: white; font-weight: 800; font-size: 20px; text-shadow: 0 1px 3px alpha(black, 0.7); }}\n\
          scrollbar slider {{ background: alpha(@rd_fg, 0.35); }}\n",
         fg = p.fg,
         panel = p.panel_bg,
@@ -1183,12 +1183,6 @@ fn power(_: &Rc<Ctx>) -> gtk::Widget {
                     BATTERY_LEVELS,
                 ),
                 choice_row(&cfg, "battery_warn_mode", "Warning", None, BATTERY_MODES),
-                switch_row(
-                    &cfg,
-                    "battery_warn_test",
-                    "Test: warn at every 1% down",
-                    Some("For trying out the sound - turn off for normal use"),
-                ),
                 row("Hear it now", None, &try_it),
             ],
         ),

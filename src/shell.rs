@@ -220,9 +220,11 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
             KeyboardMode::Exclusive,
         ),
     );
+    // zone -1 + margins too (update_quick_margin), reaching a little under
+    // the button bar so no gap can show between them
     let recents = sheet::new(
         Dir::FromBottom,
-        layer_win("rusttouch recents", Layer::Top, 0, KeyboardMode::None),
+        layer_win("rusttouch recents", Layer::Top, -1, KeyboardMode::None),
     );
     // Home sits on the Top layer *above apps* and is shown/hidden, like phosh.
     // Home: on sway it lives *below* the apps and shows whenever the screen's
@@ -1528,6 +1530,11 @@ impl ShellInner {
         if let Some(w) = self.drawer.window() {
             layer::set_margins(w, top, 0, nav, 0);
         }
+        // Recents ends 2px under the button bar (which is drawn above it):
+        // fitted exactly, rounding at fractional screen scales left a 1px line.
+        if let Some(w) = self.recents.window() {
+            layer::set_margins(w, top, 0, (nav - 2).max(0), 0);
+        }
     }
 
     pub fn keyboard_up(&self) -> bool {
@@ -2614,16 +2621,14 @@ pub fn refresh_status(shell: &Shell) {
 }
 
 /// Warn about a low battery (the battery went from `was` to `pct` percent,
-/// not charging): once when it drops to Settings > Power > "Warn at", or -
-/// while testing (`battery_warn_test`) - at every 1% it goes down.
+/// not charging): once, when it drops to Settings > Power > "Warn at".
 fn battery_warning(shell: &Shell, was: u8, pct: u8) {
     if pct >= was {
         return;
     }
     let cfg = shell.cfg();
     let level: u8 = cfg.get("battery_warn_level").parse().unwrap_or(15);
-    let crossed = was > level && pct <= level;
-    if crossed || cfg.on("battery_warn_test") {
+    if was > level && pct <= level {
         warn_battery(shell, pct);
     }
 }

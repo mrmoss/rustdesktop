@@ -1,7 +1,7 @@
-# Makes a draft GitHub release with downloadable programs when you push a tag like v0.6.10.
+# Makes a draft GitHub release with downloadable programs when you push a tag like v0.6.12.
 #
 #   1. bump `version` in Cargo.toml (and CHANGELOG.md) and commit it
-#   2. git tag v0.6.10 && git push --tags
+#   2. git tag v0.6.12 && git push --tags
 #   3. wait for this workflow, look over the draft under "Releases", then publish it
 #
 # NOTE: written without being able to run it. If a runner image or action version has moved on,

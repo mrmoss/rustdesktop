@@ -2,6 +2,20 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.12
+
+- Recents: no more 1px line between the button bar and the shaded recents
+  area. Recents is now placed like the app drawer (between the bars by
+  margins) and reaches 2px under the button bar, which is drawn on top.
+
+## 0.6.11
+
+- Low battery warning: the test switch ("warn at every 1% down") is gone;
+  it warns once, at the level set in Settings > Power.
+- Settings: all accent swatches are exactly the same round shape and size.
+  The chosen one is marked with a ring drawn around it (outside the circle)
+  and a ✓, instead of a border that changed its shape.
+
 ## 0.6.10
 
 - Low battery warning: a popup ("Battery low · 14%") and a sound when the

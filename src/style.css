@@ -74,6 +74,17 @@ searchentry {
   padding: 12px; min-height: 64px;
 }
 .qs-tile:checked { background: @rd_accent; color: @rd_accent_fg; }
+/* the theme's own pressed/hover look for buttons is square-cornered and
+   flashed when holding a tile: keep tiles round in every state */
+button.qs-tile, button.qs-tile:hover, button.qs-tile:active, button.qs-tile:checked,
+button.qs-tile:checked:active, button.qs-tile:focus, button.qs-tile:focus-visible {
+  border-radius: 20px; outline: none; background-image: none; border: none;
+  transition: none;
+}
+/* clips the tile (and anything the theme draws on it) to its round corners */
+.qs-tile-frame { border-radius: 20px; background: none; }
+button.qs-tile:active:not(:checked) { background-color: @rd_tile_bg; }
+button.qs-tile:checked:active { background-color: @rd_accent; }
 .qs-title { font-weight: 700; }
 .qs-sub { font-size: 12px; opacity: 0.8; }
 .qs-slider { padding: 0 6px; }
@@ -88,7 +99,7 @@ searchentry {
 .rcard-frame {
   border-radius: 22px;
   background: @rd_card_bg;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 .rcard-empty { background: @rd_card_bg; }
 
@@ -110,11 +121,14 @@ searchentry {
 .key-special { background: rgba(255, 255, 255, 0.08); font-size: 15px; }
 
 /* ---------- volume / brightness popup ---------- */
+/* no drop shadow: the popup's window is only a little larger than the
+   pill, so a shadow got cut off square at its edges */
 .osd {
   background: @rd_panel_bg; color: @rd_fg;
   border-radius: 24px; padding: 12px 18px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
-  margin: 8px;
+  border: 1px solid alpha(@rd_fg, 0.12);
+  box-shadow: none;
+  margin: 0;
 }
 .osd progressbar trough { min-height: 8px; border-radius: 4px; }
 .osd progressbar progress { min-height: 8px; border-radius: 4px; background: @rd_accent; }
@@ -180,8 +194,6 @@ searchentry {
 
 /* ---- split screen (sway) ---- */
 .split-divider { background: transparent; }
-.split-pill { background: alpha(@rd_fg, 0.75); border-radius: 4px; box-shadow: 0 0 0 2px alpha(black, 0.35); }
-.split-guide { color: @rd_accent; background: transparent; }
 .arrange { background: alpha(black, 0.55); color: @rd_fg; }
 .arrange-tile {
   background: alpha(@rd_panel_bg, 0.92); color: @rd_fg; border-radius: 22px;
@@ -205,7 +217,7 @@ searchentry {
   background: alpha(black, 0.6); color: white; border-radius: 999px;
   min-width: 28px; min-height: 28px; font-size: 14px; font-weight: 700;
 }
-.drop-hint.group-edge { background: alpha(@rd_accent, 0.5); border-width: 4px; }
+.drop-hint.group-edge { background: @rd_accent; border: none; border-radius: 4px; box-shadow: 0 0 10px alpha(@rd_accent, 0.8); }
 .win-close {
   background: alpha(black, 0.55); color: white; border-radius: 999px; border: none;
   box-shadow: none; min-width: 32px; min-height: 32px; padding: 0; font-weight: 700;
@@ -213,11 +225,19 @@ searchentry {
 .win-close:hover { background: alpha(#d33, 0.85); }
 .switch-bg { background: black; }
 /* holding Wi-Fi / Bluetooth: an outline grows in, then the tile glows */
-.qs-tile.lp-pressing {
-  transition: box-shadow 450ms ease-in;
-  box-shadow: inset 0 0 0 3px alpha(@rd_accent, 0.9);
+button.qs-tile.lp-pressing, button.qs-tile.lp-pressing:active {
+  box-shadow: inset 0 0 0 3px alpha(@rd_accent, 0.6);
 }
-.qs-tile.lp-ready {
-  box-shadow: inset 0 0 0 3px @rd_accent, 0 0 22px alpha(@rd_accent, 0.75);
-  background: alpha(@rd_accent, 0.45);
+button.qs-tile.lp-ready, button.qs-tile.lp-ready:active,
+button.qs-tile.lp-ready:checked, button.qs-tile.lp-ready:checked:active {
+  box-shadow: inset 0 0 0 3px @rd_accent;
+  background-color: alpha(@rd_accent, 0.45);
 }
+
+/* recents pictures: hidden scroll bars with no size (quiets GTK warnings) */
+.pic-holder scrollbar, .pic-holder scrollbar slider, .pic-holder scrollbar trough {
+  min-width: 0; min-height: 0; margin: 0; padding: 0; border: none;
+}
+/* the theme pulls scroll bar sliders in with negative margins, which made
+   GTK log "GtkGizmo (slider) reported min width -2" for every scrolled list */
+scrollbar slider { margin: 0; }

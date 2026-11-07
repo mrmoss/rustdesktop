@@ -1,0 +1,19 @@
+# Keeps the GitHub Actions the workflows use up to date (they are pinned to full commit hashes;
+# this proposes the hash bumps for you to review), and the Rust libraries.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # gtk4 and gtk4-layer-shell have to move together (each layer-shell release is built
+      # for one gtk4 release): bump them by hand, see Cargo.toml.
+      - dependency-name: gtk4
+        update-types: ['version-update:semver-minor', 'version-update:semver-major']
+      - dependency-name: gtk4-layer-shell
+        update-types: ['version-update:semver-minor', 'version-update:semver-major']

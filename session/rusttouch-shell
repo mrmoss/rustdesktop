@@ -1,6 +1,10 @@
 #!/bin/sh
 # Started by the compositor. Logs to $XDG_RUNTIME_DIR/rusttouch/rusttouch.log
 mkdir -p "${XDG_RUNTIME_DIR:-/tmp}/rusttouch"
+LOG="${XDG_RUNTIME_DIR:-/tmp}/rusttouch/rusttouch.log"
+# the last session's log is kept as rusttouch.log.old
+[ -f "$LOG" ] && mv -f "$LOG" "$LOG.old"
+echo "session: started at $(date +%T)" >"$LOG"
 
 # Tell D-Bus/systemd-started helpers (portals, keyring, ...) about this
 # Wayland session. Without this, GTK apps wait ~25s at startup for a desktop
@@ -8,12 +12,38 @@ mkdir -p "${XDG_RUNTIME_DIR:-/tmp}/rusttouch"
 # the slow first app launches.
 dbus-update-activation-environment --systemd \
   WAYLAND_DISPLAY DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_SESSION_DESKTOP 2>/dev/null
-# portals left over from an earlier session have the wrong environment
-timeout 5 systemctl --user stop xdg-desktop-portal.service \
-  xdg-desktop-portal-gnome.service xdg-desktop-portal-gtk.service 2>/dev/null
+echo "session: environment handed over at $(date +%T)" >>"$LOG"
+# Portals started before this point (by the login screen, or by an app
+# before the environment above was handed over) talk to the wrong screen:
+# stop them, and clear "failed" marks so they may start again.
+PORTALS="xdg-desktop-portal.service xdg-desktop-portal-gtk.service xdg-desktop-portal-wlr.service xdg-desktop-portal-gnome.service"
+timeout 5 systemctl --user stop $PORTALS 2>/dev/null
+systemctl --user reset-failed $PORTALS 2>/dev/null
+echo "session: old portals stopped at $(date +%T)" >>"$LOG"
+# the portals only start once the graphical session counts as running
+timeout 5 systemctl --user start rusttouch-session.target 2>>"$LOG"
+echo "session: graphical session target started at $(date +%T)" >>"$LOG"
+# Start the portal ourselves instead of waiting for an app to ask for it:
+# a request made while the old portal was being stopped is otherwise left
+# hanging for 25s - and so is every app (and RustTouch) that asks after it.
+# Runs in the background and writes down how long it took, or why it failed.
+(
+  t0=$(date +%s)
+  timeout 20 systemctl --user start xdg-desktop-portal.service
+  if timeout 10 busctl --user call org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop \
+       org.freedesktop.portal.Settings Read ss org.freedesktop.appearance color-scheme >/dev/null 2>&1; then
+    echo "session: desktop portal answered after $(( $(date +%s) - t0 ))s"
+  else
+    echo "session: desktop portal did NOT answer after $(( $(date +%s) - t0 ))s:"
+    systemctl --user --no-pager --lines=8 status $PORTALS 2>&1 | head -60
+  fi
+) >>"$LOG" 2>&1 &
 
 # rusttouch itself never needs portals or the accessibility bus (it strips
 # these again for the apps it launches)
 export GDK_DEBUG=no-portals
+export GTK_USE_PORTAL=0
 export GTK_A11Y=none
-exec "${RUSTTOUCH_BIN:-rusttouch}" >"${XDG_RUNTIME_DIR:-/tmp}/rusttouch/rusttouch.log" 2>&1
+echo "session: starting rusttouch at $(date +%T)" >>"$LOG"
+"${RUSTTOUCH_BIN:-rusttouch}" >>"$LOG" 2>&1
+timeout 5 systemctl --user stop rusttouch-session.target 2>/dev/null

@@ -47,6 +47,7 @@ pub fn start_idle(tx: Sender<Event>, screen_off: u32, sleep: u32) -> Option<Chil
     std::thread::spawn(move || {
         for line in BufReader::new(out).lines().map_while(Result::ok) {
             let _ = tx.send(Event::Idle(line.trim().to_string()));
+            crate::shell::wake();
         }
     });
     Some(child)
@@ -135,6 +136,7 @@ pub fn start_buttons(tx: Sender<Event>) -> (usize, bool) {
                 // we do our own repeat so holding works the same everywhere)
                 if ty == EV_KEY && value != 2 && WANTED.contains(&code) {
                     let _ = tx.send(Event::Key(code, value == 1));
+                    crate::shell::wake();
                 }
             }
         });

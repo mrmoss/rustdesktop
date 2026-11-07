@@ -19,15 +19,16 @@ meson setup build --prefix=/usr/local --buildtype=release \
 ninja -C build
 sudo ninja -C build install
 # Make sure the dynamic linker knows /usr/local/lib (Ubuntu already does, but be safe)
-echo /usr/local/lib/x86_64-linux-gnu | sudo tee /etc/ld.so.conf.d/rusttouch-local.conf >/dev/null
+MULTIARCH=$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -dumpmachine 2>/dev/null || echo x86_64-linux-gnu)
+echo "/usr/local/lib/$MULTIARCH" | sudo tee /etc/ld.so.conf.d/rusttouch-local.conf >/dev/null
 sudo ldconfig
-export PKG_CONFIG_PATH="/usr/local/lib/x86_64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+export PKG_CONFIG_PATH="/usr/local/lib/$MULTIARCH/pkgconfig:/usr/local/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
-# pkg-config on Ubuntu already searches /usr/local/lib/x86_64-linux-gnu/pkgconfig
+# pkg-config on Ubuntu already searches /usr/local/lib/<multiarch>/pkgconfig
 if pkg-config --exists gtk4-layer-shell-0; then
   echo "gtk4-layer-shell $(pkg-config --modversion gtk4-layer-shell-0) installed to /usr/local"
 else
   echo "Installed, but pkg-config can't see it. Try:"
-  echo "  export PKG_CONFIG_PATH=/usr/local/lib/x86_64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig"
+  echo "  export PKG_CONFIG_PATH=/usr/local/lib/$MULTIARCH/pkgconfig:/usr/local/lib/pkgconfig"
   exit 1
 fi

@@ -98,10 +98,19 @@ pub fn bind(label: &gtk::Label, kind: Kind) {
         l.len() == 1
     });
     if first {
-        // one shared timer for every clock label
-        let _ = glib::timeout_add_seconds_local(1, || {
-            update_all();
-            glib::ControlFlow::Continue
-        });
+        // one shared timer for every clock label, firing when the minute
+        // changes (not every second - the clock shows no seconds)
+        tick();
     }
+}
+
+fn tick() {
+    let sec = glib::DateTime::now_local()
+        .map(|t| t.second())
+        .unwrap_or(0)
+        .clamp(0, 59) as u32;
+    let _ = glib::timeout_add_seconds_local_once(60 - sec, || {
+        update_all();
+        tick();
+    });
 }

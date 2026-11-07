@@ -249,7 +249,16 @@ fn node(v: &Value) -> Option<Node> {
 
 /// The visible workspace on `output` (connector name like "eDP-1"; None = first).
 pub fn screen(output: Option<&str>) -> Option<Screen> {
+    screen_in(&request(GET_TREE, "")?, output)
+}
+
+/// The screen and its groups from one look at sway (one IPC round trip).
+pub fn screen_and_groups(output: Option<&str>) -> Option<(Screen, Vec<Group>)> {
     let tree = request(GET_TREE, "")?;
+    Some((screen_in(&tree, output)?, groups_in(&tree, output)))
+}
+
+fn screen_in(tree: &Value, output: Option<&str>) -> Option<Screen> {
     let outputs = tree["nodes"].as_array()?;
     let out = outputs
         .iter()
@@ -311,9 +320,13 @@ pub struct Group {
 
 /// Every workspace with windows on `output` (None = first monitor).
 pub fn groups(output: Option<&str>) -> Vec<Group> {
-    let Some(tree) = request(GET_TREE, "") else {
-        return Vec::new();
-    };
+    match request(GET_TREE, "") {
+        Some(tree) => groups_in(&tree, output),
+        None => Vec::new(),
+    }
+}
+
+fn groups_in(tree: &Value, output: Option<&str>) -> Vec<Group> {
     let Some(outputs) = tree["nodes"].as_array() else {
         return Vec::new();
     };

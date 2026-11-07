@@ -5,13 +5,19 @@
 //! Events go to the GTK thread over a channel; requests are sent straight
 //! from the GTK thread (wayland-client proxies are thread-safe).
 
+use std::os::fd::{AsFd, FromRawFd};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::Sender;
+use std::sync::Arc;
 
 use wayland_client::globals::{registry_queue_init, GlobalListContents};
 use wayland_client::protocol::{wl_output, wl_registry, wl_seat};
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 use wayland_protocols_misc::zwp_input_method_v2::client::{
     zwp_input_method_manager_v2 as im_manager, zwp_input_method_v2 as im,
+};
+use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
+    zwp_virtual_keyboard_manager_v1 as vk_manager, zwp_virtual_keyboard_v1 as vk,
 };
 use wayland_protocols_wlr::foreign_toplevel::v1::client::{
     zwlr_foreign_toplevel_handle_v1 as handle, zwlr_foreign_toplevel_manager_v1 as manager,
@@ -31,6 +37,7 @@ pub struct Toplevel {
     pub app_id: String,
     pub activated: bool,
     pub minimized: bool,
+    pub fullscreen: bool,
 }
 
 pub struct Client {
@@ -41,6 +48,11 @@ pub struct Client {
     power: Option<power_manager::ZwlrOutputPowerManagerV1>,
     outputs: Vec<wl_output::WlOutput>,
     pub has_input_method: bool,
+    /// the RustTouch keyboard types through these
+    vkbd: Option<vk::ZwpVirtualKeyboardV1>,
+    im: Option<im::ZwpInputMethodV2>,
+    im_serial: Arc<AtomicU32>,
+    _keymap: Option<std::fs::File>,
 }
 
 impl Client {
@@ -67,6 +79,30 @@ impl Client {
         let _ = self.conn.flush();
     }
 
+    /// Press and release a key (evdev code) with modifiers held (xkb mask).
+    pub fn vk_key(&self, code: u32, mods: u32) {
+        let Some(k) = &self.vkbd else { return };
+        let t = (glib_ms() & 0xffff_ffff) as u32;
+        if mods != 0 {
+            k.modifiers(mods, 0, 0, 0);
+        }
+        k.key(t, code, 1);
+        k.key(t.wrapping_add(1), code, 0);
+        if mods != 0 {
+            k.modifiers(0, 0, 0, 0);
+        }
+        let _ = self.conn.flush();
+    }
+
+    /// Type text into the focused text field (emoji and other characters
+    /// that aren't on the keyboard map).
+    pub fn commit_text(&self, text: &str) {
+        let Some(m) = &self.im else { return };
+        m.commit_string(text.to_string());
+        m.commit(self.im_serial.load(Ordering::SeqCst));
+        let _ = self.conn.flush();
+    }
+
     /// Turn all screens on/off. false if the compositor can't.
     pub fn set_screens(&self, on: bool) -> bool {
         let Some(mgr) = &self.power else {
@@ -88,6 +124,7 @@ impl Client {
 }
 
 pub struct State {
+    im_serial: Arc<AtomicU32>,
     items: Vec<Toplevel>,
     tx: Sender<Event>,
     im_pending: bool,
@@ -100,12 +137,46 @@ pub struct State {
 impl State {
     fn publish(&self) {
         let _ = self.tx.send(Event::Toplevels(self.items.clone()));
+        crate::shell::wake();
     }
 }
 
 /// `want_im`: bind input-method-v2 (only when *we* drive the keyboard; an
 /// OSK like squeekboard binds it itself and there can only be one).
-pub fn start(tx: Sender<Event>, want_im: bool) -> Option<Client> {
+fn glib_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// A US keyboard map for the virtual keyboard (the compositor fills in the
+/// details from the system's keyboard data).
+const KEYMAP: &str = "xkb_keymap {\n\
+  xkb_keycodes { include \"evdev+aliases(qwerty)\" };\n\
+  xkb_types { include \"complete\" };\n\
+  xkb_compat { include \"complete\" };\n\
+  xkb_symbols { include \"pc+us+inet(evdev)\" };\n\
+};\n";
+
+extern "C" {
+    fn memfd_create(name: *const std::ffi::c_char, flags: u32) -> i32;
+}
+
+fn keymap_file() -> Option<std::fs::File> {
+    use std::io::Write;
+    let fd = unsafe { memfd_create(c"rusttouch-keymap".as_ptr(), 0) };
+    if fd < 0 {
+        return None;
+    }
+    let mut f = unsafe { std::fs::File::from_raw_fd(fd) };
+    f.write_all(KEYMAP.as_bytes()).ok()?;
+    f.write_all(&[0]).ok()?;
+    Some(f)
+}
+
+/// `want_kbd`: also create a virtual keyboard (the RustTouch keyboard).
+pub fn start(tx: Sender<Event>, want_im: bool, want_kbd: bool) -> Option<Client> {
     let conn = Connection::connect_to_env().ok()?;
     let (globals, mut queue) = registry_queue_init::<State>(&conn).ok()?;
     let qh = queue.handle();
@@ -134,6 +205,23 @@ pub fn start(tx: Sender<Event>, want_im: bool) -> Option<Client> {
         }
     }
 
+    let mut vkbd = None;
+    let mut keymap = None;
+    if want_kbd {
+        let vm: Option<vk_manager::ZwpVirtualKeyboardManagerV1> = globals.bind(&qh, 1..=1, ()).ok();
+        if let (Some(m), Some(s)) = (&vm, &seat) {
+            let k = m.create_virtual_keyboard(s, &qh, ());
+            if let Some(f) = keymap_file() {
+                k.keymap(1, f.as_fd(), (KEYMAP.len() + 1) as u32); // 1 = XKB v1
+                keymap = Some(f);
+            }
+            vkbd = Some(k);
+        } else {
+            eprintln!("rusttouch: the compositor has no virtual-keyboard support - the keyboard can't type");
+        }
+    }
+    let im_serial = Arc::new(AtomicU32::new(0));
+
     let client = Client {
         conn: conn.clone(),
         qh: qh.clone(),
@@ -142,8 +230,13 @@ pub fn start(tx: Sender<Event>, want_im: bool) -> Option<Client> {
         power,
         outputs,
         has_input_method: input_method.is_some(),
+        vkbd,
+        im: input_method.clone(),
+        im_serial: im_serial.clone(),
+        _keymap: keymap,
     };
     let mut state = State {
+        im_serial,
         items: Vec::new(),
         tx,
         im_pending: false,
@@ -233,6 +326,30 @@ impl Dispatch<im_manager::ZwpInputMethodManagerV2, ()> for State {
     }
 }
 
+impl Dispatch<vk_manager::ZwpVirtualKeyboardManagerV1, ()> for State {
+    fn event(
+        _: &mut Self,
+        _: &vk_manager::ZwpVirtualKeyboardManagerV1,
+        _: vk_manager::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<vk::ZwpVirtualKeyboardV1, ()> for State {
+    fn event(
+        _: &mut Self,
+        _: &vk::ZwpVirtualKeyboardV1,
+        _: vk::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
 impl Dispatch<im::ZwpInputMethodV2, ()> for State {
     fn event(
         this: &mut Self,
@@ -249,11 +366,13 @@ impl Dispatch<im::ZwpInputMethodV2, ()> for State {
             }
             im::Event::Deactivate => this.im_pending = false,
             im::Event::Done => {
+                this.im_serial.fetch_add(1, Ordering::SeqCst);
                 let reshow = this.im_activated && this.im_pending;
                 this.im_activated = false;
                 if this.im_pending != this.im_active || reshow {
                     this.im_active = this.im_pending;
                     let _ = this.tx.send(Event::TextInput(this.im_active));
+                    crate::shell::wake();
                 }
             }
             im::Event::Unavailable => {
@@ -283,6 +402,7 @@ impl Dispatch<manager::ZwlrForeignToplevelManagerV1, ()> for State {
                 app_id: String::new(),
                 activated: false,
                 minimized: false,
+                fullscreen: false,
             });
         }
     }
@@ -313,9 +433,10 @@ impl Dispatch<handle::ZwlrForeignToplevelHandleV1, ()> for State {
                     .chunks_exact(4)
                     .map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
                     .collect();
-                // 1 = minimized, 2 = activated (see the protocol XML)
+                // 1 = minimized, 2 = activated, 3 = fullscreen (protocol XML)
                 this.items[i].minimized = states.contains(&1);
                 this.items[i].activated = states.contains(&2);
+                this.items[i].fullscreen = states.contains(&3);
             }
             handle::Event::Done => this.publish(),
             handle::Event::Closed => {

@@ -96,7 +96,7 @@ RustTouch logs in to sway when it's installed (Settings → Windows to change).
   - Hold a window and drag it onto an edge of another window (same group or
     another) to put it on that side, or onto empty space for a group of its own.
   - ✕ on a window closes just that window; flick a card up closes the group.
-- Drag the handle on the line between apps to resize; tap it to arrange on the
+- Drag the black line between apps to resize; tap it to arrange on the
   screen itself (Flip / Full / Close).
 
 Your own sway lines go in `~/.config/rusttouch/sway.conf`.

@@ -209,5 +209,25 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
         sc.vadjustment().set_value(0.0);
     });
 
-    (root.clone(), root)
+    // its own keyboard floats over the bottom of the drawer (see osk.rs)
+    let ov = gtk::Overlay::new();
+    ov.set_child(Some(&root));
+    ov.set_hexpand(true);
+    ov.set_vexpand(true);
+    let holder: Rc<RefCell<Option<gtk::Box>>> = Rc::new(RefCell::new(None));
+    let (h, s) = (holder.clone(), shell.clone());
+    let kb = crate::osk::keyboard(
+        260,
+        Rc::new(move || {
+            if h.borrow().is_some() {
+                s.sheet_keyboard(Overlay::Drawer, false);
+            }
+        }),
+    );
+    *holder.borrow_mut() = Some(kb.clone());
+    ov.add_overlay(&kb);
+    shell.register_sheet_keyboard(Overlay::Drawer, kb.upcast());
+    let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    outer.append(&ov);
+    (outer.clone(), outer)
 }

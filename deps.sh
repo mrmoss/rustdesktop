@@ -14,14 +14,22 @@ if ! grep -rqsE '^[^#]*universe|Components:.*universe' /etc/apt/sources.list /et
 fi
 sudo apt update
 
-# Required for any build (including run-windowed.sh)
-sudo apt install -y build-essential pkg-config libgtk-4-dev curl
+# A downloaded release (.tar.gz) is already built: only what it needs to run.
+PREBUILT=""
+[ -x bin/rusttouch ] && PREBUILT=1
 
-# Rust: Ubuntu's cargo is fine on 26.04; on 24.04 it's old, so prefer rustup.
-if ! command -v cargo >/dev/null 2>&1; then
-  echo "== installing Rust via rustup"
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-  echo "   (open a new shell or: . \$HOME/.cargo/env)"
+if [ -n "$PREBUILT" ]; then
+  sudo apt install -y libgtk-4-1
+else
+  # Required for any build (including run-windowed.sh)
+  sudo apt install -y build-essential pkg-config libgtk-4-dev curl
+
+  # Rust: Ubuntu's cargo is fine on 26.04; on 24.04 it's old, so prefer rustup.
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "== installing Rust via rustup"
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    echo "   (open a new shell or: . \$HOME/.cargo/env)"
+  fi
 fi
 
 # Optional runtime helpers (shell works without them; features just hide)
@@ -30,6 +38,12 @@ for p in sway wl-mirror phoc wvkbd squeekboard swayidle grim wtype wlr-randr iio
          network-manager bluez wireplumber pulseaudio-utils foot labwc xdotool; do
   sudo apt install -y "$p" >/dev/null 2>&1 && echo "  ok      $p" || echo "  MISSING $p (optional)"
 done
+
+if [ -n "$PREBUILT" ]; then
+  echo
+  echo "Done. Now: ./install.sh"
+  exit 0
+fi
 
 # gtk4-layer-shell (needed for run-nested.sh / install.sh, not run-windowed.sh)
 . ./ensure-layer-shell.sh

@@ -22,11 +22,15 @@ mod drawer;
 mod gestures;
 mod home;
 mod icons;
+mod inhibit;
+mod kbd;
 mod layer;
 mod lock;
 mod netlist;
 mod osd;
+mod osk;
 mod pam;
+mod pics;
 mod power;
 mod quick;
 mod recents;
@@ -69,6 +73,7 @@ fn send_action(action: &str) -> glib::ExitCode {
 }
 
 fn main() -> glib::ExitCode {
+    let _ = shell::uptime(); // start the clock
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--do") {
         return send_action(args.get(2).map(String::as_str).unwrap_or(""));
@@ -82,9 +87,11 @@ fn main() -> glib::ExitCode {
         if !app.windows().is_empty() {
             return;
         }
+        shell::step("GTK started");
         let cfg = config::Config::load();
         theme::apply(&cfg);
         clock::set_prefs(&cfg);
+        shell::step("settings and theme loaded");
         let shell = shell::build(app, cfg);
         // Keep the shell alive for the life of the process.
         std::mem::forget(shell);

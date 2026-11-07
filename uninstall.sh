@@ -16,7 +16,8 @@ sudo rm -f \
   /etc/pam.d/rusttouch \
   /etc/systemd/logind.conf.d/rusttouch.conf \
   /etc/xdg/xdg-desktop-portal/rusttouch-portals.conf \
+  /usr/local/lib/systemd/user/rusttouch-session.target \
   /etc/udev/rules.d/70-rusttouch-buttons.rules
-sudo rm -rf /usr/local/share/rusttouch
+sudo rm -rf /usr/local/share/rusttouch /usr/local/lib/rusttouch
 sudo udevadm control --reload-rules 2>/dev/null || true
 echo "RustTouch removed. Settings are still in ~/.config/rusttouch (delete it to start fresh)."

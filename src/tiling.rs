@@ -52,13 +52,9 @@ struct State {
     closers: Vec<(i64, Rect)>,
     output: Rect,
     dragging: bool,
-    guide: Option<(
-        gtk::ApplicationWindow,
-        gtk::DrawingArea,
-        Rc<Cell<(bool, f64)>>,
-    )>,
     arrange: Option<gtk::ApplicationWindow>,
     last_poll: i64,
+    last_sync: i64,
 }
 
 thread_local! {
@@ -78,17 +74,18 @@ pub fn start(shell: &Shell) {
     // Apps that can draw their own title bar (most GTK/Qt apps) are asked to,
     // so they get a close button - sway's own title bars have none.
     sway::run(r#"for_window [shell="xdg_shell"] border csd"#);
-    sway::run(r#"[shell="xdg_shell"] border csd"#);
     let tx = shell.tx();
     sway::watch_windows(move |change, c| {
         if change == "new" && c["type"] == "con" && c["app_id"] != MIRROR_APP {
             if let Some(id) = c["id"].as_i64() {
                 let _ = tx.send(Event::NewWindow(id));
+                crate::shell::wake();
             }
         }
         // titles don't move anything
         if change != "title" && change != "mark" && change != "urgent" {
             let _ = tx.send(Event::Layout);
+            crate::shell::wake();
         }
     });
 }
@@ -310,8 +307,7 @@ impl SlideDrag {
     /// `forward` = towards the next group (finger moving left).
     pub fn begin(shell: &Shell, forward: bool) -> Option<SlideDrag> {
         let out = shell::shell_output_name();
-        let scr = sway::screen(out.as_deref())?;
-        let mut groups = sway::groups(out.as_deref());
+        let (scr, mut groups) = sway::screen_and_groups(out.as_deref())?;
         groups.sort_by_key(|g| g.num);
         let cur = scr.num;
         let target = if forward {
@@ -413,61 +409,15 @@ pub fn slide_switch(shell: &Shell, forward: bool) {
     }
 }
 
-thread_local! {
-    /// screenshots already decoded at screen size (a swipe must start instantly)
-    static PICS: RefCell<Vec<(std::path::PathBuf, i32, i32, gtk::gdk_pixbuf::Pixbuf)>> =
-        const { RefCell::new(Vec::new()) };
-}
-
-/// A screenshot stretched to exactly w x h, decoded once and kept.
-fn quick_picture(path: Option<std::path::PathBuf>, w: i32, h: i32) -> Option<gtk::Widget> {
-    use gtk::gdk::prelude::GdkCairoContextExt;
-    let path = path?;
-    let scale = shell::shell_monitor()
-        .map(|m| m.scale_factor())
-        .unwrap_or(1)
-        .max(1);
-    let (pw, ph) = (w * scale, h * scale);
-    let cached = PICS.with(|c| {
-        c.borrow()
-            .iter()
-            .find(|e| e.0 == path && e.1 == pw && e.2 == ph)
-            .map(|e| e.3.clone())
-    });
-    let pb = match cached {
-        Some(pb) => pb,
-        None => {
-            let pb = gtk::gdk_pixbuf::Pixbuf::from_file_at_scale(&path, pw, ph, false).ok()?;
-            PICS.with(|c| {
-                let mut c = c.borrow_mut();
-                c.retain(|e| e.0.exists());
-                if c.len() > 24 {
-                    c.remove(0);
-                }
-                c.push((path.clone(), pw, ph, pb.clone()));
-            });
-            pb
-        }
-    };
-    let area = gtk::DrawingArea::new();
-    area.set_content_width(w);
-    area.set_content_height(h);
-    let f = f64::from(scale);
-    area.set_draw_func(move |_, cr, _, _| {
-        cr.scale(1.0 / f, 1.0 / f);
-        cr.set_source_pixbuf(&pb, 0.0, 0.0);
-        let _ = cr.paint();
-    });
-    Some(area.upcast())
-}
-
-/// Decode the screenshots a swipe would need ahead of time.
+/// Read the screenshots a swipe would need ahead of time (on a worker thread).
 pub fn warm_pictures(shell: &Shell) {
     let out = shell::shell_output_name();
-    for g in sway::groups(out.as_deref()) {
-        let (w, h) = (g.rect.w.max(1), g.rect.h.max(1));
-        let _ = group_picture(&g.root, g.rect, w, h, shell);
-    }
+    let paths = sway::groups(out.as_deref())
+        .iter()
+        .flat_map(|g| g.root.windows())
+        .filter_map(|w| shell.con_preview(w.id))
+        .collect();
+    crate::pics::prefetch(paths);
 }
 
 /// A group drawn from its windows' screenshots, w x h.
@@ -489,7 +439,7 @@ fn group_picture(root: &Node, area: Rect, w: i32, h: i32, shell: &Shell) -> gtk:
     for win in wins {
         let rw = ((f64::from(win.rect.w)) * sx) as i32;
         let rh = ((f64::from(win.rect.h)) * sy) as i32;
-        let content = quick_picture(shell.con_preview(win.id), rw.max(1), rh.max(1))
+        let content = crate::pics::widget(shell.con_preview(win.id), rw.max(1), rh.max(1))
             .unwrap_or_else(|| crate::recents::placeholder(&win.app_id, 96, false));
         content.set_size_request(rw.max(1), rh.max(1));
         fixed.put(
@@ -611,7 +561,7 @@ pub fn layout_changed(shell: &Shell) {
         if !s.home_visible() && !s.any_showing() {
             let _ = glib::timeout_add_local_once(Duration::from_millis(250), {
                 let s = s.clone();
-                move || shell::capture_then(&s, || {})
+                move || shell::capture_quietly(&s)
             });
         }
         refresh(&s, true);
@@ -623,6 +573,20 @@ pub fn layout_changed(shell: &Shell) {
 pub fn refresh(shell: &Shell, force: bool) {
     if !enabled(shell) {
         return;
+    }
+    // the home flag can go stale (a window shown some other way): check it
+    // against sway now and then, so auto-hide bars don't stay up
+    let now = glib::monotonic_time();
+    let resync = STATE.with(|s| {
+        let mut s = s.borrow_mut();
+        let due = now - s.last_sync > 1_000_000;
+        if due {
+            s.last_sync = now;
+        }
+        due
+    });
+    if resync && shell.home_visible() && !shell.any_showing() {
+        shell.sync_home(sway::showing_nothing(shell::shell_output_name().as_deref()));
     }
     // hidden the moment a sheet starts sliding in (they'd sit on top of it)
     let show =
@@ -641,7 +605,7 @@ pub fn refresh(shell: &Shell, force: bool) {
     let now = glib::monotonic_time();
     let wait = STATE.with(|s| {
         let mut s = s.borrow_mut();
-        let skip = !force && now - s.last_poll < 400_000;
+        let skip = !force && now - s.last_poll < 1_500_000;
         if !skip {
             s.last_poll = now;
         }
@@ -664,6 +628,14 @@ pub fn refresh(shell: &Shell, force: bool) {
         .map(|w| (w.id, w.rect))
         .collect();
     set_layout(shell, list, closers, scr.output);
+}
+
+/// Take the split-screen handles away now (going home, a menu opening) -
+/// without waiting for the next check, so they don't linger on screen.
+pub fn hide_handles(shell: &Shell) {
+    if enabled(shell) {
+        set_layout(shell, Vec::new(), Vec::new(), Rect::default());
+    }
 }
 
 fn set_layout(shell: &Shell, list: Vec<Divider>, closers: Vec<(i64, Rect)>, output: Rect) {
@@ -746,20 +718,10 @@ fn divider_window(shell: &Shell, d: &Divider, out: Rect) -> gtk::ApplicationWind
     layer::set_margins(&w, top, 0, 0, left);
     w.set_default_size(width, height);
 
+    // invisible: you grab the black gap itself (no handle drawn on it)
     let area = gtk::Box::new(gtk::Orientation::Vertical, 0);
     area.add_css_class("split-divider");
     area.set_size_request(width, height);
-    let pill = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    pill.add_css_class("split-pill");
-    if d.side_by_side {
-        pill.set_size_request(6, 64);
-    } else {
-        pill.set_size_request(64, 6);
-    }
-    pill.set_halign(gtk::Align::Center);
-    pill.set_valign(gtk::Align::Center);
-    pill.set_vexpand(true);
-    area.append(&pill);
     w.set_child(Some(&area));
 
     // drag = resize (live, a few times a second), tap = arrange
@@ -767,16 +729,14 @@ fn divider_window(shell: &Shell, d: &Divider, out: Rect) -> gtk::ApplicationWind
     let last = Rc::new(Cell::new(0i64));
     let moved = Rc::new(Cell::new(false));
     {
-        let (s, moved) = (shell.clone(), moved.clone());
-        let d = d.clone();
+        let moved = moved.clone();
         g.connect_drag_begin(move |_, _, _| {
             moved.set(false);
             STATE.with(|st| st.borrow_mut().dragging = true);
-            show_guide(&s, &d, f64::from(d.pos));
         });
     }
     {
-        let (s, last, moved) = (shell.clone(), last.clone(), moved.clone());
+        let (last, moved) = (last.clone(), moved.clone());
         let d = d.clone();
         g.connect_drag_update(move |_, dx, dy| {
             let off = if d.side_by_side { dx } else { dy };
@@ -787,9 +747,8 @@ fn divider_window(shell: &Shell, d: &Divider, out: Rect) -> gtk::ApplicationWind
                 return;
             }
             let p = clamp_pos(&d, f64::from(d.pos) + off);
-            show_guide(&s, &d, p);
             let now = glib::monotonic_time();
-            if now - last.get() > 90_000 {
+            if now - last.get() > 40_000 {
                 last.set(now);
                 resize(&d, p);
             }
@@ -799,14 +758,14 @@ fn divider_window(shell: &Shell, d: &Divider, out: Rect) -> gtk::ApplicationWind
         let s = shell.clone();
         let d = d.clone();
         g.connect_drag_end(move |_, dx, dy| {
-            hide_guide();
             STATE.with(|st| st.borrow_mut().dragging = false);
             if moved.get() {
                 let off = if d.side_by_side { dx } else { dy };
                 resize(&d, clamp_pos(&d, f64::from(d.pos) + off));
+                // put the grab area where the windows now meet
                 let s2 = s.clone();
-                let _ = glib::timeout_add_local_once(Duration::from_millis(150), move || {
-                    refresh(&s2, true)
+                let _ = glib::timeout_add_local_once(Duration::from_millis(40), move || {
+                    refresh(&s2, true);
                 });
             } else {
                 arrange(&s);
@@ -830,6 +789,8 @@ fn clamp_pos(d: &Divider, p: f64) -> f64 {
     )
 }
 
+/// Resize so the gap between the windows is centred on `p`. Returns where the
+/// gap's centre ends up.
 fn resize(d: &Divider, p: f64) {
     let size = (p as i32 - d.lo - GAP / 2).max(MIN);
     sway::run(&format!(
@@ -837,64 +798,6 @@ fn resize(d: &Divider, p: f64) {
         d.a,
         if d.side_by_side { "width" } else { "height" }
     ));
-}
-
-/// A line that follows your finger while resizing (the handle itself stays
-/// put until you let go, so touch coordinates stay steady).
-fn show_guide(shell: &Shell, d: &Divider, p: f64) {
-    let exists = STATE.with(|s| s.borrow().guide.is_some());
-    if !exists {
-        let w = overlay_window(shell, "rusttouch split guide", Layer::Overlay, Anchors::ALL);
-        w.set_can_target(false);
-        let pos = Rc::new(Cell::new((true, 0.0)));
-        let area = gtk::DrawingArea::new();
-        area.set_hexpand(true);
-        area.set_vexpand(true);
-        area.set_can_target(false);
-        let p2 = pos.clone();
-        area.set_draw_func(move |a, cr, w, h| {
-            let (vertical, at) = p2.get();
-            let c = a.color();
-            cr.set_source_rgba(
-                f64::from(c.red()),
-                f64::from(c.green()),
-                f64::from(c.blue()),
-                0.9,
-            );
-            if vertical {
-                cr.rectangle(at - 3.0, 0.0, 6.0, f64::from(h));
-            } else {
-                cr.rectangle(0.0, at - 3.0, f64::from(w), 6.0);
-            }
-            let _ = cr.fill();
-        });
-        area.add_css_class("split-guide");
-        w.set_child(Some(&area));
-        STATE.with(|s| s.borrow_mut().guide = Some((w, area, pos)));
-    }
-    STATE.with(|s| {
-        let s = s.borrow();
-        if let Some((w, area, pos)) = s.guide.as_ref() {
-            let local = if d.side_by_side {
-                p - f64::from(s.output.x)
-            } else {
-                p - f64::from(s.output.y)
-            };
-            pos.set((d.side_by_side, local));
-            area.queue_draw();
-            if !w.is_visible() {
-                w.present();
-            }
-        }
-    });
-}
-
-fn hide_guide() {
-    STATE.with(|s| {
-        if let Some((w, _, _)) = s.borrow().guide.as_ref() {
-            w.set_visible(false);
-        }
-    });
 }
 
 // ---------------------------------------------------------------- arrange

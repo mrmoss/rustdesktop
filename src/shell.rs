@@ -16,6 +16,7 @@ use crate::gestures::{self, Target};
 use crate::icons::Glyph;
 use crate::layer::{self, Anchors, KeyboardMode, Layer, Zone};
 use crate::sheet::{self, Dir, Sheet};
+use crate::sway::Rect;
 use crate::sys::{self, Osk, Status};
 use crate::wl::{self, Toplevel};
 use crate::{anim, bars, drawer, home, lock, osd, power, quick, recents, sensors, theme, tray};
@@ -50,7 +51,7 @@ pub enum Overlay {
     Recents,
 }
 
-const ALL: [Overlay; 3] = [Overlay::Drawer, Overlay::Quick, Overlay::Recents];
+pub const ALL: [Overlay; 3] = [Overlay::Drawer, Overlay::Quick, Overlay::Recents];
 
 pub struct ShellInner {
     pub layered: bool,
@@ -88,6 +89,10 @@ pub struct ShellInner {
     /// on-screen keyboard process (squeekboard or wvkbd), if we started one
     pub osk: RefCell<Option<Child>>,
     osk_visible: Cell<bool>,
+    /// when the keyboard last went away (previews wait for the app to grow back)
+    kb_hidden_at: Cell<i64>,
+    /// an app's text field has focus (the input method is active)
+    im_active: Cell<bool>,
     osk_gen: Cell<u32>,
     inhibitor: RefCell<Option<Child>>,
 
@@ -122,6 +127,8 @@ pub struct ShellInner {
     /// RustTouch's own text fields never depends on the on-screen keyboard
     /// app, which can end up underneath them)
     sheet_kbds: RefCell<Vec<(Overlay, gtk::Widget)>>,
+    /// a sheet's own keyboard is showing
+    embedded_up: Cell<bool>,
     kb_listeners: RefCell<Vec<Box<dyn Fn(bool)>>>,
     home_ui: RefCell<Option<home::Home>>,
     display_gen: Cell<u32>,
@@ -200,7 +207,9 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
     // Overlay: the on-screen keyboard (Top layer, mapped later) must stay above them.
     let drawer = sheet::new(
         Dir::FromBottom,
-        layer_win("rusttouch apps", Layer::Top, 0, KeyboardMode::Exclusive),
+        // zone -1 + margins for the bars (update_quick_margin): it keeps its
+        // full size when the keyboard reserves room - the keyboard goes over it
+        layer_win("rusttouch apps", Layer::Top, -1, KeyboardMode::Exclusive),
     );
     let quick = sheet::new(
         Dir::FromTop,
@@ -238,20 +247,26 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         KeyboardMode::Exclusive,
     );
 
+    // the RustTouch keyboard (wvkbd / squeekboard support is kept in the
+    // code for later, but not offered: they can end up behind our menus)
     let keyboard = if layered {
-        sys::osk_kind(&cfg.get("keyboard_program"))
+        Osk::RustTouch
     } else {
         Osk::Missing
     };
     eprintln!(
         "rusttouch: on-screen keyboard: {}",
         match keyboard {
+            Osk::RustTouch => "RustTouch keyboard",
             Osk::Wvkbd => "wvkbd (auto-show via input-method)",
             Osk::Squeekboard => "squeekboard",
             Osk::Missing => "none (apt install wvkbd)",
         }
     );
-    let wl = wl::start(tx.clone(), keyboard == Osk::Wvkbd);
+    let own_kbd = keyboard == Osk::RustTouch;
+    step("layer windows made");
+    let wl = wl::start(tx.clone(), keyboard == Osk::Wvkbd || own_kbd, own_kbd);
+    step("wayland client started");
     match &wl {
         Some(c) if !c.has_toplevels => {
             eprintln!("rusttouch: no wlr-foreign-toplevel - recents disabled")
@@ -259,7 +274,9 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         None => eprintln!("rusttouch: no Wayland window list - recents disabled"),
         _ => {}
     }
-    if keyboard == Osk::Wvkbd && !wl.as_ref().map(|c| c.has_input_method).unwrap_or(false) {
+    if (keyboard == Osk::Wvkbd || own_kbd)
+        && !wl.as_ref().map(|c| c.has_input_method).unwrap_or(false)
+    {
         eprintln!("rusttouch: compositor has no input-method-v2 - keyboard won't auto-show");
     }
     if layered {
@@ -294,6 +311,8 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         keyboard,
         osk: RefCell::new(None),
         osk_visible: Cell::new(false),
+        kb_hidden_at: Cell::new(0),
+        im_active: Cell::new(false),
         osk_gen: Cell::new(0),
         inhibitor: RefCell::new(None),
         cfg: RefCell::new(cfg),
@@ -320,6 +339,7 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         launched_at: Cell::new(0),
         refit_gen: Cell::new(0),
         sheet_kbds: RefCell::new(Vec::new()),
+        embedded_up: Cell::new(false),
         kb_listeners: RefCell::new(Vec::new()),
         home_ui: RefCell::new(None),
         display_gen: Cell::new(0),
@@ -334,12 +354,54 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
     });
     SELF.with(|me| *me.borrow_mut() = Some(Rc::downgrade(&shell)));
 
+    // back from recents to an app whose text field still has focus: the
+    // keyboard comes back (the app never lost focus, so it doesn't ask again)
+    {
+        let s = shell.clone();
+        shell.sheet(Overlay::Recents).on_progress(move |p| {
+            if p <= 0.001 {
+                let s = s.clone();
+                let _ = glib::timeout_add_local_once(Duration::from_millis(120), move || {
+                    if s.im_active.get()
+                        && !s.osk_visible.get()
+                        && !s.home_visible()
+                        && !s.any_showing()
+                        && !s.is_locked()
+                        && s.cfg().on("keyboard_auto")
+                    {
+                        s.show_keyboard(true);
+                    }
+                });
+            }
+        });
+    }
+
+    // sliding a finger along the volume/brightness popup sets the level
+    {
+        let s = shell.clone();
+        shell.osd.on_set(move |glyph, v| {
+            if glyph == Glyph::Sun {
+                sys::set_brightness(v);
+            } else {
+                s.volume_now.set(Some(v));
+                sys::set_volume(v);
+                for f in s.volume_listeners.borrow().iter() {
+                    f(v);
+                }
+            }
+        });
+    }
+
     // a sheet's keyboard goes away with the sheet
     for o in [Overlay::Drawer, Overlay::Quick] {
         let s = shell.clone();
         shell.sheet(o).on_progress(move |p| {
             if p <= 0.001 {
                 s.sheet_keyboard(o, false);
+                // auto-hide: the bars stay their full wait after a menu closes
+                s.poke_bars();
+            } else {
+                crate::tiling::hide_handles(&s);
             }
         });
     }
@@ -352,20 +414,23 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         *shell.tray.borrow_mut() = Some(t);
     }
 
+    step("tray started");
     let (dc, dp) = drawer::build(&shell);
     shell.drawer.set_content(&dc, &dp);
+    step("app drawer built");
     let (qc, qp) = quick::build(&shell);
     shell.quick.set_content(&qc, &qp);
-    shell.add_sheet_keyboard(Overlay::Drawer, &dc);
     shell.add_sheet_keyboard(Overlay::Quick, &qp);
     // the pull-down covers the top bar's space (the bar fades away as you
     // pull - everything on it is in the panel) and stops above the button bar
     if layered {
         shell.update_quick_margin();
     }
+    step("quick settings built");
     let rc = recents::build(&shell);
     shell.recents.set_content(&rc, &rc);
 
+    step("recents built");
     let top = bars::topbar(&shell);
     let nav = bars::navbar(&shell);
     let home_ui = home::build(&shell);
@@ -377,6 +442,7 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
     ));
     *shell.home.borrow_mut() = Some(home.clone().upcast::<gtk::Widget>());
 
+    step("bars and home built");
     let lock = lock::build(&shell, lock_win);
 
     if layered {
@@ -461,6 +527,7 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         }
     }
 
+    step("windows shown");
     shell.apply_cursor();
 
     if layered {
@@ -468,7 +535,7 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         *shell.osk.borrow_mut() = match keyboard {
             Osk::Squeekboard => sys::start_squeekboard(auto),
             Osk::Wvkbd => None, // started below with the configured look
-            Osk::Missing => None,
+            Osk::RustTouch | Osk::Missing => None,
         };
         if keyboard == Osk::Wvkbd {
             shell.restart_keyboard();
@@ -480,10 +547,12 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
             *shell.power_key_inhibitor.borrow_mut() = power::inhibit_power_key();
         }
     }
+    step("keyboard, idle and power buttons set up");
     watch_config(&shell);
     crate::tiling::start(&shell);
     if layered {
         start_ctl(shell.tx());
+        crate::inhibit::start();
     }
 
     if layered {
@@ -511,6 +580,7 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
                 if let Some(c) = &ctx {
                     c.unsetenv("GDK_DEBUG");
                     c.unsetenv("GTK_A11Y");
+                    c.unsetenv("GTK_USE_PORTAL");
                 }
                 let ctx = ctx.map(|c| c.upcast::<gio::AppLaunchContext>());
                 crate::autostart::start_all(ctx.as_ref());
@@ -518,23 +588,28 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         }
     }
 
+    step("sway, control pipe and screensaver set up");
     // first status read: create the config file, or restore Wi-Fi/Bluetooth
     let txs = tx.clone();
     std::thread::spawn(move || {
         let _ = txs.send(Event::Startup(sys::read_status()));
+        crate::shell::wake();
     });
 
     refresh_status(&shell);
     let s = shell.clone();
-    let _ = glib::timeout_add_seconds_local(5, move || {
-        refresh_status(&s);
+    let _ = glib::timeout_add_seconds_local(15, move || {
+        if !s.blanked.get() {
+            refresh_status(&s);
+        }
         glib::ControlFlow::Continue
     });
 
     // keep the front app's recents preview fresh (cheap: half size, no compression)
     if layered {
         let s = shell.clone();
-        let _ = glib::timeout_add_seconds_local(4, move || {
+        // (previews are mostly taken when you leave an app; this is a backstop)
+        let _ = glib::timeout_add_seconds_local(20, move || {
             let locked = s
                 .lock
                 .borrow()
@@ -542,20 +617,32 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
                 .map(|l| l.is_locked())
                 .unwrap_or(false);
             if !locked && !s.blanked.get() {
-                capture_then(&s, || {});
+                capture_quietly(&s);
             }
             glib::ControlFlow::Continue
         });
     }
 
-    // pump background events into the GTK thread
+    step("status read");
+    eprintln!("rusttouch: [{:.1}s] ready", uptime());
+    // Background threads hand events over through `rx` and call wake(): the
+    // GTK thread only wakes up when there is something to do (it used to
+    // check 33 times a second, which kept the CPU from resting).
     let s = shell.clone();
-    let _ = glib::timeout_add_local(Duration::from_millis(30), move || {
-        while let Ok(ev) = rx.try_recv() {
-            handle_event(&s, ev);
+    DRAIN.with(|d| {
+        *d.borrow_mut() = Some(Box::new(move || {
+            while let Ok(ev) = rx.try_recv() {
+                handle_event(&s, ev);
+            }
+        }))
+    });
+    // slow housekeeping: auto-hide bars, split-screen handles, keyboard start
+    let s = shell.clone();
+    let _ = glib::timeout_add_local(Duration::from_millis(250), move || {
+        if !s.blanked.get() {
+            s.update_autohide();
+            crate::tiling::refresh(&s, false);
         }
-        s.update_autohide();
-        crate::tiling::refresh(&s, false);
         let at = s.kb_check_at.get();
         if at != 0 && glib::monotonic_time() >= at {
             s.kb_check_at.set(0);
@@ -599,7 +686,10 @@ fn handle_event(shell: &Shell, ev: Event) {
             }
             shell.set_blank(false);
         }
-        Event::TextInput(active) => text_input(shell, active),
+        Event::TextInput(active) => {
+            shell.im_active.set(active);
+            text_input(shell, active)
+        }
         Event::ShellOutput(name) => {
             shell.pin_to(name);
             crate::screens::refresh(shell);
@@ -608,14 +698,27 @@ fn handle_event(shell: &Shell, ev: Event) {
         Event::NewWindow(id) => crate::tiling::on_new_window(id),
         Event::Action(a) => do_action(shell, &a),
         Event::Idle(what) => match what.as_str() {
-            "blank" => {
-                if shell.cfg().on("lock_on_screen_off") {
-                    shell.lock();
-                }
-                shell.set_blank(true);
+            "blank" | "sleep" => {
+                // a video playing (or an app asking to stay awake) isn't idle:
+                // start the timers over instead
+                let s = shell.clone();
+                let sleep = what.as_str() == "sleep";
+                glib::spawn_future_local(async move {
+                    if crate::inhibit::busy().await {
+                        s.restart_idle();
+                        return;
+                    }
+                    if sleep {
+                        s.run_power_action("sleep");
+                        return;
+                    }
+                    if s.cfg().on("lock_on_screen_off") {
+                        s.lock();
+                    }
+                    s.set_blank(true);
+                });
             }
             "unblank" => shell.set_blank(false),
-            "sleep" => shell.run_power_action("sleep"),
             _ => {}
         },
         Event::Key(code, down) => match code {
@@ -670,6 +773,7 @@ fn apply_displays(shell: &Shell) {
         let _ = tx.send(Event::ShellOutput(crate::display::shell_output(
             &cfg, &outs,
         )));
+        crate::shell::wake();
     });
 }
 
@@ -679,17 +783,20 @@ fn text_input(shell: &Shell, active: bool) {
     if !shell.cfg().on("keyboard_auto") {
         return;
     }
+    // The lock screen has its own keyboard, and our menus (app drawer,
+    // pull-down) open and close the keyboard themselves when you tap their
+    // text fields. While they show, text fields gaining or losing focus by
+    // themselves (opening the drawer focuses its search box; the drawer
+    // getting shorter for the keyboard makes GTK re-announce the field) must
+    // neither pop the keyboard up nor take it away.
+    if shell.is_locked() || shell.any_showing() {
+        return;
+    }
     // small delay before hiding, so moving between fields doesn't flicker
     let gen = shell.osk_gen.get().wrapping_add(1);
     shell.osk_gen.set(gen);
     let now = glib::monotonic_time();
     if active {
-        // The lock screen has its own keyboard, and our sheets (app drawer,
-        // pull-down) open the keyboard themselves when you tap their text
-        // fields - GTK focusing a search box on its own must not pop it up.
-        if shell.is_locked() || shell.any_showing() {
-            return;
-        }
         shell.last_activate.set(now);
         shell.show_keyboard(true);
     } else if now - shell.last_activate.get() < 400_000 {
@@ -733,7 +840,7 @@ fn repeat_key(shell: &Shell, code: u16, down: bool, step: f64) {
             }
             s.osd.show(Glyph::Volume, v / 100.0, "");
         } else {
-            let b = (sys::brightness().unwrap_or(50.0) + step).clamp(3.0, 100.0);
+            let b = (sys::brightness().unwrap_or(50.0) + step).clamp(0.0, 100.0);
             sys::set_brightness(b);
             s.osd.show(Glyph::Sun, b / 100.0, "");
         }
@@ -841,7 +948,7 @@ fn reload_config(shell: &Shell) {
     if changed("time_24h") || changed("bar_clock") || changed("date_format") {
         crate::clock::set_prefs(&new);
     }
-    if changed("top_bar_autohide") || changed("nav_bar_autohide") {
+    if changed("bars_autohide") {
         shell.apply_autohide();
     }
     if changed("top_bar_size") || changed("nav_bar_size") {
@@ -892,6 +999,7 @@ fn reload_config(shell: &Shell) {
         || changed("keyboard_font_size")
         || changed("keyboard_style")
         || changed("keyboard_rounding")
+        || changed("keyboard_landscape_layout")
         || changed("theme")
         || changed("accent")
     {
@@ -939,6 +1047,10 @@ fn edge_strip(shell: &Shell, app: &gtk::Application, top: bool) -> gtk::Applicat
     );
     let strip = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     strip.add_css_class("edge-strip");
+    if !top {
+        // swipe sideways along the bottom edge: switch window groups
+        crate::bars::attach_group_swipe(&strip, shell);
+    }
     let (s1, s2) = (shell.clone(), shell.clone());
     gestures::attach(
         &strip,
@@ -1183,6 +1295,15 @@ impl ShellInner {
 
     /// (Re)start wvkbd with the keyboard settings (size, font, colors).
     pub fn restart_keyboard(&self) {
+        if self.keyboard == Osk::RustTouch {
+            // rebuilt with the new settings next time it shows
+            let was = self.osk_visible.get();
+            crate::kbd::reset();
+            if was {
+                self.show_keyboard(true);
+            }
+            return;
+        }
         if self.keyboard != Osk::Wvkbd {
             return;
         }
@@ -1228,21 +1349,22 @@ impl ShellInner {
 
     /// Bars that auto-hide don't reserve space (apps get the whole screen);
     /// the edge strip is there instead to bring them back.
+    /// Auto-hiding bars still make room while they show (apps shrink to fit
+    /// and grow back when they hide), like bars that always show. The edge
+    /// strips are there to bring them back.
     fn apply_autohide(&self) {
-        let cfg = self.cfg();
-        let keys = ["top_bar_autohide", "nav_bar_autohide"];
+        let auto = self.cfg().on("bars_autohide");
         let bars = self.bar_windows.borrow();
         let edges = self.edge_windows.borrow();
-        for (i, key) in keys.iter().enumerate() {
-            let auto = cfg.on(key);
+        for i in 0..2 {
             if let Some(w) = bars.get(i) {
-                layer::set_zone(w, if auto { Zone::Fixed(0) } else { Zone::Auto });
-                // re-map so the compositor picks up the new zone
+                layer::set_zone(w, Zone::Auto);
+                // re-map so the compositor picks up the zone
                 w.set_visible(false);
                 w.present();
             }
             if let Some(e) = edges.get(i) {
-                e.set_visible(auto);
+                e.set_visible(auto || FULLSCREEN.with(|f| f.get()));
             }
         }
         drop((bars, edges));
@@ -1261,34 +1383,147 @@ impl ShellInner {
             .as_ref()
             .map(|l| l.is_locked())
             .unwrap_or(false);
-        let recently = glib::monotonic_time() - self.bars_poked.get() < 3_000_000;
-        let keep = self.home_visible.get() || self.any_open() || locked || recently;
+        let delay = i64::from(cfg.num("bars_autohide_delay").clamp(2, 30));
+        let recently = glib::monotonic_time() - self.bars_poked.get() < delay * 1_000_000;
+        // menus open (or sliding in): bars stay, so the menus and their
+        // keyboard sit above the button bar
+        let keep = self.home_visible.get() || self.any_showing() || locked || recently;
+        // a full-screen app (video, game): the bars auto-hide even when they
+        // normally always show - a tap or swipe on the screen edge brings them
+        // back over the app for a few seconds
+        let fullscreen = self.front_fullscreen();
+        if fullscreen != FULLSCREEN.with(|f| f.replace(fullscreen)) {
+            self.fullscreen_changed(fullscreen);
+            if fullscreen {
+                // going full screen: the bars go right away
+                self.bars_poked.set(0);
+            }
+        }
         let bars = self.bar_windows.borrow();
-        for (i, key) in ["top_bar_autohide", "nav_bar_autohide"].iter().enumerate() {
+        let auto = cfg.on("bars_autohide") || fullscreen;
+        let mut relayout_keyboard = false;
+        for i in 0..2 {
             let Some(w) = bars.get(i) else { continue };
             // the lock screen has no buttons (the bar is above it, on the Overlay layer)
-            let want = (!cfg.on(key) || keep) && !(i == 1 && locked);
+            let want = (!auto || keep) && !(i == 1 && locked);
+            let before = w.is_visible();
             if want && !w.is_visible() {
                 w.present();
             } else if !want && w.is_visible() {
                 w.set_visible(false);
             }
+            if i == 1 && before != w.is_visible() && self.osk_visible.get() {
+                relayout_keyboard = true;
+            }
+        }
+        drop(bars);
+        drop(cfg);
+        if relayout_keyboard && self.keyboard == Osk::RustTouch {
+            if let Some(s) = SELF.with(|me| me.borrow().as_ref().and_then(|w| w.upgrade())) {
+                crate::kbd::place(&s);
+            }
         }
     }
 
-    /// Keep the pull-down's bottom edge just above the button bar.
+    /// Is the app in front full screen (and nothing of ours over it)?
+    /// (The app used last, not the one with focus: our menus take the focus
+    /// while they're open, and the app must stay "in front" meanwhile.)
+    fn front_fullscreen(&self) -> bool {
+        if self.home_visible.get() || self.is_locked() {
+            return false;
+        }
+        let Some(front) = self.mru.borrow().first().copied() else {
+            return false;
+        };
+        self.toplevels
+            .borrow()
+            .iter()
+            .any(|t| t.key == front && t.fullscreen)
+    }
+
+    /// The compositor draws a full-screen app over the Top layer, so while
+    /// one is in front the top bar, the edge strips and our menus move up to
+    /// the Overlay layer (else they'd be hidden behind it), and the edge
+    /// strips show so the bars can be brought back.
+    fn fullscreen_changed(&self, fullscreen: bool) {
+        eprintln!(
+            "rusttouch: full-screen app {}",
+            if fullscreen {
+                "in front - the bars auto-hide"
+            } else {
+                "gone"
+            }
+        );
+        let layer = if fullscreen {
+            Layer::Overlay
+        } else {
+            Layer::Top
+        };
+        // A surface is taken off the screen while it changes layer, never
+        // moved while showing (moving a showing surface can upset sway).
+        let move_to = |w: &gtk::ApplicationWindow| {
+            let showing = w.is_visible();
+            if showing {
+                w.set_visible(false);
+            }
+            layer::set_layer(w, layer);
+            if showing {
+                w.present();
+            }
+        };
+        if let Some(w) = self.bar_windows.borrow().first() {
+            move_to(w);
+        }
+        let auto = self.cfg().on("bars_autohide");
+        for (i, e) in self.edge_windows.borrow().iter().enumerate() {
+            e.set_visible(false);
+            if i == 0 {
+                layer::set_layer(e, layer);
+            }
+            e.set_visible(auto || fullscreen);
+        }
+        for s in [&self.drawer, &self.quick, &self.recents] {
+            if let Some(w) = s.window() {
+                move_to(w);
+            }
+        }
+    }
+
+    /// Keep the pull-down's bottom edge just above the button bar, and the
+    /// app drawer between the bars.
     pub fn update_quick_margin(&self) {
+        let (top, nav) = theme::bar_sizes(&self.cfg());
         if let Some(w) = self.quick.window() {
-            let (_, nav) = theme::bar_sizes(&self.cfg());
             layer::set_margins(w, 0, 0, nav, 0);
+        }
+        if let Some(w) = self.drawer.window() {
+            layer::set_margins(w, top, 0, nav, 0);
         }
     }
 
     pub fn keyboard_up(&self) -> bool {
-        self.osk_visible.get()
+        self.osk_visible.get() || self.embedded_up.get()
     }
 
     pub fn show_keyboard(&self, show: bool) {
+        // with wvkbd/squeekboard the app drawer has its own keyboard
+        if show && self.drawer.is_open() && self.keyboard != Osk::RustTouch {
+            self.sheet_keyboard(Overlay::Drawer, true);
+            return;
+        }
+        // The keyboard program sits on the same layer as the pull-down and can
+        // end up drawn underneath it, so an open pull-down is shortened to end
+        // where the keyboard starts (and grows back when it goes).
+        if self.keyboard != Osk::RustTouch
+            && (self.quick.is_open() || self.quick.progress() > 0.001)
+        {
+            self.sheet_clear_of_keyboard(Overlay::Quick, show);
+        }
+        if !show && self.embedded_up.replace(false) {
+            for (_, kb) in self.sheet_kbds.borrow().iter() {
+                kb.set_visible(false);
+            }
+        }
         match self.keyboard {
             Osk::Wvkbd => {
                 if let Some(c) = self.osk.borrow().as_ref() {
@@ -1296,11 +1531,23 @@ impl ShellInner {
                 }
             }
             Osk::Squeekboard => sys::squeekboard_show(show),
+            Osk::RustTouch => {
+                if show && self.is_locked() {
+                    return; // the lock screen has its own
+                }
+                if let Some(s) = SELF.with(|me| me.borrow().as_ref().and_then(|w| w.upgrade())) {
+                    crate::kbd::set_visible(&s, show);
+                }
+            }
             Osk::Missing => return,
         }
         let was = self.osk_visible.replace(show);
+        if was && !show {
+            self.kb_hidden_at.set(glib::monotonic_time());
+        }
+        let up = show || self.embedded_up.get();
         for f in self.kb_listeners.borrow().iter() {
-            f(show);
+            f(up);
         }
         if was != show {
             self.refit_apps();
@@ -1345,24 +1592,38 @@ impl ShellInner {
     /// it was started before the sheet opened, because it would sit underneath
     /// it. Only without an on-screen keyboard program is the built-in one used.
     pub fn sheet_keyboard(&self, o: Overlay, on: bool) {
-        if self.keyboard == Osk::Missing {
+        // App drawer: its own keyboard over its bottom edge (on sway the
+        // keyboard program ends up underneath the drawer). Pull-down without
+        // a keyboard program: the built-in one in it.
+        let own = o == Overlay::Drawer && self.keyboard != Osk::RustTouch;
+        if own || self.keyboard == Osk::Missing {
+            if on && o == Overlay::Drawer {
+                crate::osk::apply_style(&self.cfg(), self.keyboard_height());
+            }
             for (which, kb) in self.sheet_kbds.borrow().iter() {
                 if *which == o {
+                    if on {
+                        kb.set_size_request(-1, self.keyboard_height());
+                    }
                     kb.set_visible(on);
+                }
+            }
+            let any = self.sheet_kbds.borrow().iter().any(|(_, k)| k.is_visible());
+            if self.embedded_up.replace(any) != any {
+                for f in self.kb_listeners.borrow().iter() {
+                    f(any);
                 }
             }
             return;
         }
-        // Keep the sheet clear of the keyboard: the keyboard app sits on the
-        // same layer as our sheets and can end up underneath them, so the
-        // sheet is shortened to stop where the keyboard starts.
-        self.sheet_clear_of_keyboard(o, on);
         if !on {
+            self.sheet_clear_of_keyboard(o, false);
             if self.osk_visible.get() {
                 self.show_keyboard(false);
             }
             return;
         }
+        // the same keyboard as everywhere else
         self.show_keyboard(true);
     }
 
@@ -1383,17 +1644,24 @@ impl ShellInner {
         }
     }
 
+    /// rusttouch's own Wayland connection (the keyboard types through it).
+    pub fn wl_client(&self) -> Option<&wl::Client> {
+        self.wl.as_ref()
+    }
+
+    pub fn register_sheet_keyboard(&self, o: Overlay, kb: gtk::Widget) {
+        self.sheet_kbds.borrow_mut().push((o, kb));
+    }
+
     fn sheet_clear_of_keyboard(&self, o: Overlay, on: bool) {
         let Some(w) = self.sheet(o).window() else {
             return;
         };
         let kb = if on { self.keyboard_height() } else { 0 };
+        let (top, nav) = theme::bar_sizes(&self.cfg());
         match o {
-            Overlay::Quick => {
-                let (_, nav) = theme::bar_sizes(&self.cfg());
-                layer::set_margins(w, 0, 0, nav + kb, 0);
-            }
-            _ => layer::set_margins(w, 0, 0, kb, 0),
+            Overlay::Quick => layer::set_margins(w, 0, 0, nav + kb, 0),
+            _ => layer::set_margins(w, top, 0, nav + kb, 0),
         }
     }
 
@@ -1538,6 +1806,9 @@ impl ShellInner {
         if crate::tiling::enabled(self) {
             // an empty workspace on the main screen = the home screen
             self.home_visible.set(true);
+            if let Some(s) = SELF.with(|me| me.borrow().as_ref().and_then(|w| w.upgrade())) {
+                crate::tiling::hide_handles(&s); // before the windows go
+            }
             let out = shell_output_name();
             if !crate::sway::showing_nothing(out.as_deref()) {
                 let k = crate::sway::free_workspace();
@@ -1697,6 +1968,13 @@ impl ShellInner {
                     .unwrap_or(true)
         };
         if now.is_some() && now != prev && (now != last_front || launching) && front_here() {
+            if launching {
+                eprintln!(
+                    "rusttouch: [{:.1}s] app window showed {:.1}s after launch",
+                    uptime(),
+                    (glib::monotonic_time() - self.launched_at.get()) as f64 / 1e6
+                );
+            }
             self.launched_at.set(0);
             self.hide_home();
         }
@@ -1772,6 +2050,28 @@ impl ShellInner {
     }
 
     /// (top bar height, nav bar height)
+    /// Height of the button bar if it's on screen now (0 = hidden).
+    pub fn nav_shown(&self) -> i32 {
+        let bars = self.bar_windows.borrow();
+        match bars.get(1) {
+            Some(w) if w.is_visible() => theme::bar_sizes(&self.cfg()).1,
+            _ => 0,
+        }
+    }
+
+    /// The RustTouch keyboard sits just above the button bar; the bar then
+    /// reserves room for both (`extra` = keyboard height, 0 = just itself).
+    pub fn set_nav_zone(&self, extra: i32) {
+        let bars = self.bar_windows.borrow();
+        if let Some(w) = bars.get(1) {
+            if extra > 0 {
+                layer::set_zone(w, Zone::Fixed(theme::bar_sizes(&self.cfg()).1 + extra));
+            } else {
+                layer::set_zone(w, Zone::Auto);
+            }
+        }
+    }
+
     pub fn bar_heights(&self) -> (i32, i32) {
         match self.bars.borrow().as_ref() {
             Some((t, n)) => {
@@ -1805,7 +2105,7 @@ impl ShellInner {
         if self.exit_home_edit() {
             return;
         }
-        if self.keyboard == Osk::Wvkbd && self.osk_visible.get() {
+        if matches!(self.keyboard, Osk::Wvkbd | Osk::RustTouch) && self.osk_visible.get() {
             self.show_keyboard(false);
             return;
         }
@@ -1817,6 +2117,9 @@ impl ShellInner {
 
     pub fn lock(&self) {
         self.hide_all();
+        if self.osk_visible.get() {
+            self.show_keyboard(false); // the lock screen has its own keyboard
+        }
         if let Some(l) = self.lock.borrow().as_ref() {
             l.show();
         }
@@ -1840,8 +2143,47 @@ impl ShellInner {
 }
 
 thread_local! {
+    /// handles queued background events (set up in build)
+    static DRAIN: RefCell<Option<Box<dyn Fn()>>> = const { RefCell::new(None) };
+}
+
+static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+/// Seconds since rusttouch started (for the log: what takes long at login).
+/// Log how long the last startup step took (finds what keeps the screen black).
+pub fn step(what: &str) {
+    thread_local! { static LAST: Cell<f64> = const { Cell::new(0.0) }; }
+    let now = uptime();
+    LAST.with(|l| {
+        eprintln!("rusttouch: [{now:.1}s] {what} ({:.2}s)", now - l.get());
+        l.set(now);
+    });
+}
+
+pub fn uptime() -> f64 {
+    STARTED
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_secs_f64()
+}
+
+/// Tell the GTK thread that an event is waiting (call after sending one).
+/// Safe from any thread.
+pub fn wake() {
+    let _ = glib::idle_add_once(|| {
+        DRAIN.with(|d| {
+            if let Some(f) = d.borrow().as_ref() {
+                f();
+            }
+        })
+    });
+}
+
+thread_local! {
     /// the shell, for methods that need to schedule work on themselves
     static SELF: RefCell<Option<std::rc::Weak<ShellInner>>> = const { RefCell::new(None) };
+    /// a full-screen app was in front at the last bar update
+    static FULLSCREEN: Cell<bool> = const { Cell::new(false) };
     /// why the last screenshot failed (shown on recents cards without a picture)
     static CAPTURE_ERROR: RefCell<Option<String>> = const { RefCell::new(None) };
 }
@@ -1858,6 +2200,80 @@ pub fn capture_then(shell: &Shell, f: impl FnOnce() + 'static) {
         f();
         return;
     }
+    // the picture should show the app as if the keyboard wasn't there: put
+    // the keyboard away and take the picture as soon as the app has grown
+    // back (sway reports the new size once the app has redrawn at it)
+    let tiled = crate::tiling::enabled(shell);
+    let before = |s: &Shell| -> Vec<Rect> {
+        if crate::tiling::enabled(s) {
+            crate::tiling::visible_windows()
+                .iter()
+                .map(|w| w.rect)
+                .collect()
+        } else {
+            Vec::new()
+        }
+    };
+    let f: Box<dyn FnOnce()> = Box::new(f);
+    if shell.osk_visible.get() {
+        let sizes = if tiled { Some(before(shell)) } else { None };
+        shell.show_keyboard(false);
+        wait_for_app(shell, sizes, glib::monotonic_time(), f);
+        return;
+    }
+    // the keyboard went away just before (going home): give the app a moment
+    const SETTLE: i64 = 450_000;
+    let since = glib::monotonic_time() - shell.kb_hidden_at.get();
+    if since < SETTLE {
+        let s = shell.clone();
+        let wait = Duration::from_micros((SETTLE - since) as u64);
+        let _ = glib::timeout_add_local_once(wait, move || capture_now(&s, f));
+        return;
+    }
+    capture_now(shell, f);
+}
+
+/// Wait for the app to fill the keyboard's space, then take the picture.
+/// sway reports the app's new size as soon as it asks the app to resize, a
+/// little before the app has redrawn at that size, so after the size changes
+/// the app gets ~200ms more to draw. Gives up waiting after 450ms.
+fn wait_for_app(shell: &Shell, sizes: Option<Vec<Rect>>, started: i64, f: Box<dyn FnOnce()>) {
+    let s = shell.clone();
+    let _ = glib::timeout_add_local_once(Duration::from_millis(25), move || {
+        let waited = glib::monotonic_time() - started;
+        let grown = match &sizes {
+            Some(old) => {
+                let now: Vec<Rect> = crate::tiling::visible_windows()
+                    .iter()
+                    .map(|w| w.rect)
+                    .collect();
+                now != *old
+            }
+            None => false,
+        };
+        if grown {
+            let rest = (450_000 - waited).clamp(0, 200_000) as u64;
+            let _ = glib::timeout_add_local_once(Duration::from_micros(rest), move || {
+                capture_now(&s, f)
+            });
+        } else if waited >= 450_000 {
+            capture_now(&s, f);
+        } else {
+            wait_for_app(&s, sizes, started, f);
+        }
+    });
+}
+
+/// A preview refresh nobody asked for: skipped while the keyboard is up (it
+/// would cover part of the app, and typing mustn't be interrupted).
+pub fn capture_quietly(shell: &Shell) {
+    if shell.keyboard_up() {
+        return;
+    }
+    capture_then(shell, || {});
+}
+
+fn capture_now(shell: &Shell, f: Box<dyn FnOnce()>) {
     if !sys::which("grim") {
         CAPTURE_ERROR
             .with(|e| *e.borrow_mut() = Some("Previews need grim:\nsudo apt install grim".into()));
@@ -1904,7 +2320,7 @@ pub fn capture_then(shell: &Shell, f: impl FnOnce() + 'static) {
         .map(|(k, g)| {
             let seq = shell.capture_seq.get().wrapping_add(1);
             shell.capture_seq.set(seq);
-            (k, g, sys::runtime_dir().join(format!("preview-{seq}.png")))
+            (k, g, sys::runtime_dir().join(format!("preview-{seq}.ppm")))
         })
         .collect();
     let shell = shell.clone();
@@ -1948,14 +2364,18 @@ pub fn capture_then(shell: &Shell, f: impl FnOnce() + 'static) {
 pub fn go_home(shell: &Shell) {
     crate::tiling::close_arrange();
     shell.exit_home_edit();
-    shell.dismiss_keyboard();
     if shell.any_open() {
+        shell.dismiss_keyboard();
         shell.hide_all();
         shell.show_home();
         return;
     }
+    // (the picture is taken with the keyboard put away)
     let s = shell.clone();
-    capture_then(shell, move || s.show_home());
+    capture_then(shell, move || {
+        s.dismiss_keyboard();
+        s.show_home()
+    });
 }
 
 pub fn toggle_recents(shell: &Shell) {
@@ -2116,8 +2536,11 @@ fn start_ctl(tx: mpsc::Sender<Event>) {
             };
             for line in std::io::BufReader::new(f).lines().map_while(Result::ok) {
                 let a = line.trim().to_string();
-                if !a.is_empty() && tx.send(Event::Action(a)).is_err() {
-                    return;
+                if !a.is_empty() {
+                    if tx.send(Event::Action(a)).is_err() {
+                        return;
+                    }
+                    wake();
                 }
             }
         }

@@ -67,11 +67,6 @@ pub const KEYS: &[Key] = &[
         help: "on | off  (apps shrink to the space above the keyboard, so nothing is hidden behind it)",
     },
     Key {
-        name: "keyboard_program",
-        default: "auto",
-        help: "auto | wvkbd | squeekboard  (applies at next login)",
-    },
-    Key {
         name: "keyboard_height",
         default: "auto",
         help: "on-screen keyboard height in portrait (px), or auto",
@@ -84,9 +79,14 @@ pub const KEYS: &[Key] = &[
     Key { name: "keyboard_font_size", default: "auto", help: "key label size (px), or auto" },
     Key { name: "keyboard_rounding", default: "auto", help: "key corner rounding (px), or auto" },
     Key {
+        name: "keyboard_landscape_layout",
+        default: "wide",
+        help: "wide (every key on one page, like a laptop) | compact (like portrait: letters + a symbols page)",
+    },
+    Key {
         name: "keyboard_style",
         default: "theme",
-        help: "theme (match RustTouch colors) | wvkbd (its own colors)",
+        help: "theme (match RustTouch colors) | wvkbd (classic dark keys)",
     },
     Key {
         name: "screen_off_after",
@@ -154,14 +154,14 @@ pub const KEYS: &[Key] = &[
         help: "button bar height in pixels (32 - 72)",
     },
     Key {
-        name: "top_bar_autohide",
-        default: "off",
-        help: "on | off  (hide the top bar over apps; swipe/tap the top edge to show it)",
+        name: "bars_autohide_delay",
+        default: "3",
+        help: "seconds the auto-hiding bars stay after you bring them back or touch them",
     },
     Key {
-        name: "nav_bar_autohide",
+        name: "bars_autohide",
         default: "off",
-        help: "on | off  (hide the button bar over apps; tap the bottom edge to show it)",
+        help: "on | off  (hide both bars over apps; tap or swipe a screen edge to bring them back)",
     },
     Key {
         name: "time_24h",
@@ -558,12 +558,20 @@ pub fn keyboard_colors(cfg: &Config) -> (String, String, String, String, String)
     (k[0].into(), k[1].into(), k[2].into(), accent, k[3].into())
 }
 
-pub fn accent_hex(name: &str) -> &'static str {
+/// "#rrggbb" for an accent setting: a named accent, or a custom "#rrggbb".
+pub fn accent_hex(name: &str) -> String {
+    let custom = name.len() == 7
+        && name.starts_with('#')
+        && name[1..].chars().all(|c| c.is_ascii_hexdigit());
+    if custom {
+        return name.to_lowercase();
+    }
     ACCENTS
         .iter()
         .find(|a| a.0 == name)
         .map(|a| a.1)
         .unwrap_or(ACCENTS[0].1)
+        .to_string()
 }
 
 fn config_home() -> PathBuf {

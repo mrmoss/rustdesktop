@@ -5,7 +5,9 @@
 #   24.04 : not packaged -> build from source into /usr/local
 
 # Include /usr/local in case a source build put the .pc file there.
-export PKG_CONFIG_PATH="/usr/local/lib/x86_64-linux-gnu/pkgconfig:/usr/local/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+# (x86_64-linux-gnu on Intel/AMD, aarch64-linux-gnu on ARM)
+MULTIARCH=$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -dumpmachine 2>/dev/null || echo x86_64-linux-gnu)
+export PKG_CONFIG_PATH="/usr/local/lib/$MULTIARCH/pkgconfig:/usr/local/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
 if pkg-config --exists gtk4-layer-shell-0; then
   :

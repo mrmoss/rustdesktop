@@ -66,7 +66,13 @@ pub fn launch(shell: &Shell, info: &gio::AppInfo) {
         // these are only for rusttouch itself (see session/rusttouch-shell)
         c.unsetenv("GDK_DEBUG");
         c.unsetenv("GTK_A11Y");
+        c.unsetenv("GTK_USE_PORTAL");
     }
+    eprintln!(
+        "rusttouch: [{:.1}s] launching {}",
+        crate::shell::uptime(),
+        info.display_name()
+    );
     shell.before_launch();
     match info.launch(&[], ctx.as_ref()) {
         Ok(()) => shell.launching(),

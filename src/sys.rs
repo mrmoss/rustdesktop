@@ -242,7 +242,16 @@ pub fn brightness() -> Option<f64> {
     if max <= 0.0 {
         return None;
     }
-    Some(cur / max * 100.0)
+    Some(raw_to_pct(cur / max))
+}
+
+/// Our eyes see brightness on a curve: half the backlight looks nearly as
+/// bright as full. The slider follows what you see, so its bottom end is
+/// really dim (the backlight's lowest step) and the top end is full.
+const GAMMA: f64 = 2.2;
+
+fn raw_to_pct(frac: f64) -> f64 {
+    frac.clamp(0.0, 1.0).powf(1.0 / GAMMA) * 100.0
 }
 
 pub fn set_brightness(pct: f64) {
@@ -250,8 +259,9 @@ pub fn set_brightness(pct: f64) {
     let Some(max) = read_num(&p.join("max_brightness")) else {
         return;
     };
-    // never go fully black from the slider on a touch-only device
-    let v = ((pct.clamp(3.0, 100.0) / 100.0) * max).round().max(1.0) as u32;
+    let frac = (pct.clamp(0.0, 100.0) / 100.0).powf(GAMMA);
+    // never fully black from the slider: the lowest step that still lights up
+    let v = (frac * max).round().max(1.0) as u32;
     set_brightness_raw(v);
 }
 
@@ -627,6 +637,8 @@ pub fn back(app_id: Option<String>, squeekboard: bool) {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Osk {
+    /// RustTouch's own keyboard (kbd.rs) - the default
+    RustTouch,
     /// pops up automatically on text fields (input-method protocol)
     Squeekboard,
     /// manual toggle only
@@ -636,21 +648,6 @@ pub enum Osk {
 
 fn wvkbd_cmd() -> String {
     std::env::var("RUSTTOUCH_OSK").unwrap_or_else(|_| "wvkbd-mobintl".into())
-}
-
-/// `pref`: "auto" | "wvkbd" | "squeekboard". Auto prefers wvkbd, because
-/// rusttouch then drives it from the input-method protocol itself, which pops
-/// it up on text fields reliably on any compositor that supports it.
-pub fn osk_kind(pref: &str) -> Osk {
-    let wv = which(&wvkbd_cmd());
-    let sq = which("squeekboard");
-    match pref {
-        "squeekboard" if sq => Osk::Squeekboard,
-        "wvkbd" if wv => Osk::Wvkbd,
-        _ if wv => Osk::Wvkbd,
-        _ if sq => Osk::Squeekboard,
-        _ => Osk::Missing,
-    }
 }
 
 // squeekboard only auto-shows when the GNOME a11y "screen keyboard" setting
@@ -850,7 +847,7 @@ pub fn rotate_to(orientation: &str) {
 /// Blocking. Err = a short reason to show the user.
 pub fn grim(path: &Path, geometry: &str) -> Result<(), String> {
     let out = Command::new("timeout")
-        .args(["3", "grim", "-l", "1", "-g", geometry])
+        .args(["3", "grim", "-t", "ppm", "-g", geometry])
         .arg(path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -893,6 +890,7 @@ pub fn open_settings() {
     match Command::new(exe)
         .env_remove("GDK_DEBUG")
         .env_remove("GTK_A11Y")
+        .env_remove("GTK_USE_PORTAL")
         .stdin(Stdio::null())
         .spawn()
     {

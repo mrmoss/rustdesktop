@@ -1,0 +1,9 @@
+# Installed to /usr/local/lib/systemd/user/rusttouch-session.target
+# Started by rusttouch-shell. It marks the graphical session as running
+# (graphical-session.target), which the desktop portals wait for: without it
+# apps like Firefox stall at startup asking for a portal that never comes.
+[Unit]
+Description=RustTouch touch session
+BindsTo=graphical-session.target
+Wants=graphical-session-pre.target
+After=graphical-session-pre.target

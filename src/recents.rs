@@ -13,7 +13,6 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
-use gtk::gdk::prelude::GdkCairoContextExt;
 use gtk::glib;
 use gtk::prelude::*;
 
@@ -61,9 +60,9 @@ pub fn build(shell: &Shell) -> gtk::Box {
     let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
     root.add_css_class("recents");
 
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 20);
-    row.set_margin_start(28);
-    row.set_margin_end(28);
+    // Android-style: older apps to the left, the one you just left at the
+    // right end and centered on screen; scrolling settles on a card
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 28);
     row.set_valign(gtk::Align::Center);
 
     let scroll = gtk::ScrolledWindow::builder()
@@ -125,12 +124,17 @@ pub fn build(shell: &Shell) -> gtk::Box {
             drag.borrow_mut().subs.clear();
             drag.borrow_mut().groups.clear();
             let (cw, ch) = card_size(&s);
+            // room on both sides so the first and last cards can be centered
+            let (_, _, sw, _) = shell::screen_size();
+            let side = ((sw - cw) / 2).max(28);
+            row.set_margin_start(side);
+            row.set_margin_end(side);
             let mut count = 0;
             if tiling::enabled(&s) {
                 let refresh = slot.borrow().clone();
                 for g in ordered_groups(&s) {
                     let (card, subs, frame) = group_card(&s, &g, cw, ch, refresh.clone());
-                    row.append(&card);
+                    row.prepend(&card); // most recent ends up on the right
                     let mut d = drag.borrow_mut();
                     d.groups.push(GroupHit {
                         num: g.num,
@@ -142,7 +146,7 @@ pub fn build(shell: &Shell) -> gtk::Box {
                 }
             } else {
                 for t in s.toplevels_mru() {
-                    row.append(&card(&s, t, cw, ch));
+                    row.prepend(&card(&s, t, cw, ch));
                     count += 1;
                 }
             }
@@ -161,6 +165,17 @@ pub fn build(shell: &Shell) -> gtk::Box {
     rebuild();
     attach_group_drag(shell, &stage, &fixed, &hint, &ghost, &drag, rebuild.clone());
 
+    // screen rotated (or resized) while recents shows: redraw the cards in
+    // the new shape once the screen has settled
+    if let Some(m) = shell::shell_monitor() {
+        let (r, s) = (rebuild.clone(), shell.clone());
+        m.connect_geometry_notify(move |_| {
+            if s.recents.is_open() {
+                let r = r.clone();
+                let _ = glib::timeout_add_local_once(Duration::from_millis(400), move || r());
+            }
+        });
+    }
     let (r, s) = (rebuild.clone(), shell.clone());
     shell.on_toplevels(move || {
         if s.recents.is_open() {
@@ -171,8 +186,19 @@ pub fn build(shell: &Shell) -> gtk::Box {
     let sc = scroll.clone();
     shell.recents.on_open(move || {
         r();
-        sc.hadjustment().set_value(0.0);
+        // start at the most recent card (right end), once laid out
+        let sc2 = sc.clone();
+        let _ = glib::idle_add_local_once(move || {
+            let a = sc2.hadjustment();
+            a.set_value(a.upper() - a.page_size());
+        });
     });
+    {
+        // no gliding while a window is being dragged (the cards would slide
+        // out from under the finger and the drop would land somewhere else)
+        let d = drag.clone();
+        attach_snap(&scroll, &row, Rc::new(move || d.borrow().dragged.is_some()));
+    }
 
     let s = shell.clone();
     clear.connect_clicked(move |_| {
@@ -186,63 +212,83 @@ pub fn build(shell: &Shell) -> gtk::Box {
     root
 }
 
+/// When scrolling stops, glide so the nearest card is centered.
+fn attach_snap(scroll: &gtk::ScrolledWindow, row: &gtk::Box, busy: Rc<dyn Fn() -> bool>) {
+    let adj = scroll.hadjustment();
+    let gen = Rc::new(Cell::new(0u32));
+    let snapping = Rc::new(Cell::new(false));
+    let (r, g, sn, sc) = (row.clone(), gen.clone(), snapping.clone(), scroll.clone());
+    adj.connect_value_changed(move |a| {
+        if sn.get() {
+            return;
+        }
+        let my = g.get().wrapping_add(1);
+        g.set(my);
+        let (a, r, g, sn, sc, busy) = (
+            a.clone(),
+            r.clone(),
+            g.clone(),
+            sn.clone(),
+            sc.clone(),
+            busy.clone(),
+        );
+        let _ = glib::timeout_add_local_once(Duration::from_millis(160), move || {
+            if g.get() != my || busy() {
+                return; // still moving, or a window is being dragged
+            }
+            let centre = a.value() + a.page_size() / 2.0;
+            let mut best: Option<f64> = None;
+            let mut child = r.first_child();
+            while let Some(c) = child {
+                if let Some(b) = c.compute_bounds(&r) {
+                    // row coordinates + its left margin = scroll position
+                    let cx = f64::from(b.x() + b.width() / 2.0) + f64::from(r.margin_start());
+                    if best
+                        .map(|v| (cx - centre).abs() < (v - centre).abs())
+                        .unwrap_or(true)
+                    {
+                        best = Some(cx);
+                    }
+                }
+                child = c.next_sibling();
+            }
+            let Some(cx) = best else { return };
+            let to = (cx - a.page_size() / 2.0).clamp(a.lower(), a.upper() - a.page_size());
+            let from = a.value();
+            if (to - from).abs() < 1.0 {
+                return;
+            }
+            sn.set(true);
+            let (a2, sn2) = (a.clone(), sn.clone());
+            let _ = anim::run(
+                &sc,
+                160,
+                move |e| a2.set_value(from + (to - from) * e),
+                move || sn2.set(false),
+            );
+        });
+    });
+}
+
 /// Cards keep the shape of the app area (screen minus bars).
+/// Cards have the shape of the whole screen.
 fn card_size(shell: &Shell) -> (i32, i32) {
+    let _ = shell;
     let (_, _, sw, sh) = shell::screen_size();
-    let (top, nav) = shell.bar_heights();
-    let app_h = f64::from((sh - top - nav).max(100));
-    let sw = f64::from(sw.max(100));
-    let mut cw = sw * 0.42;
-    let mut ch = cw * app_h / sw;
-    let max_h = app_h * 0.5;
+    let (sw, sh) = (f64::from(sw.max(100)), f64::from(sh.max(100)));
+    let mut cw = sw * 0.46;
+    let mut ch = cw * sh / sw;
+    let max_h = sh * 0.55;
     if ch > max_h {
         ch = max_h;
-        cw = ch * sw / app_h;
+        cw = ch * sw / sh;
     }
     (cw as i32, ch as i32)
 }
 
 /// A screenshot shrunk to w x h (device pixels for sharp text), or None.
 pub fn preview(path: Option<std::path::PathBuf>, w: i32, h: i32) -> Option<gtk::Widget> {
-    let scale = shell::shell_monitor()
-        .map(|m| m.scale_factor())
-        .unwrap_or(1)
-        .max(1);
-    let path = path?;
-    // Fill the window's spot in the card exactly (cropping a little if the
-    // screenshot's shape differs), so a card looks like a small copy of the group.
-    let full = gtk::gdk_pixbuf::Pixbuf::from_file(&path).ok()?;
-    let (tw, th) = (f64::from(w * scale), f64::from(h * scale));
-    let (fw, fh) = (
-        f64::from(full.width().max(1)),
-        f64::from(full.height().max(1)),
-    );
-    let k = (tw / fw).max(th / fh);
-    let pb = full.scale_simple(
-        (fw * k).ceil().max(1.0) as i32,
-        (fh * k).ceil().max(1.0) as i32,
-        gtk::gdk_pixbuf::InterpType::Hyper,
-    )?;
-    // A drawing area is exactly w x h (a Picture would ask for the image's
-    // full pixel size and stretch the card); the image is painted at device
-    // resolution so text stays sharp.
-    let area = gtk::DrawingArea::new();
-    area.set_content_width(w);
-    area.set_content_height(h);
-    let f = f64::from(scale);
-    area.set_draw_func(move |_, cr, aw, ah| {
-        let (pw, ph) = (f64::from(pb.width()) / f, f64::from(pb.height()) / f);
-        let (x, y) = ((f64::from(aw) - pw) / 2.0, (f64::from(ah) - ph) / 2.0);
-        let _ = cr.save();
-        cr.rectangle(0.0, 0.0, f64::from(aw), f64::from(ah));
-        cr.clip();
-        cr.translate(x, y);
-        cr.scale(1.0 / f, 1.0 / f);
-        cr.set_source_pixbuf(&pb, 0.0, 0.0);
-        let _ = cr.paint();
-        let _ = cr.restore();
-    });
-    Some(area.upcast())
+    crate::pics::widget(path, w, h)
 }
 
 pub fn placeholder(app_id: &str, icon_px: i32, explain: bool) -> gtk::Widget {
@@ -348,14 +394,17 @@ fn group_card(
     fixed.add_css_class("rcard-frame");
     fixed.add_css_class("group-frame");
     fixed.set_overflow(gtk::Overflow::Hidden);
-    let sx = f64::from(w) / f64::from(g.rect.w.max(1));
-    let sy = f64::from(h) / f64::from(g.rect.h.max(1));
+    // the card is a small copy of the whole screen: windows sit where they
+    // are on it (the bars' strips stay dark)
+    let (ox, oy, ow, oh) = shell::screen_size();
+    let sx = f64::from(w) / f64::from(ow.max(1));
+    let sy = f64::from(h) / f64::from(oh.max(1));
     let gap = if wins.len() > 1 { 1 } else { 0 };
     let mut subs = Vec::new();
     for win in &wins {
         let r = Rect {
-            x: ((f64::from(win.rect.x - g.rect.x)) * sx) as i32 + gap,
-            y: ((f64::from(win.rect.y - g.rect.y)) * sy) as i32 + gap,
+            x: ((f64::from(win.rect.x - ox)) * sx) as i32 + gap,
+            y: ((f64::from(win.rect.y - oy)) * sy) as i32 + gap,
             w: ((f64::from(win.rect.w)) * sx) as i32 - 2 * gap,
             h: ((f64::from(win.rect.h)) * sy) as i32 - 2 * gap,
         };
@@ -472,12 +521,13 @@ fn attach_group_drag(
         }
     };
 
-    let (s1, d1, ghost1, fixed1, b1) = (
+    let (s1, d1, ghost1, fixed1, b1, stage1) = (
         shell.clone(),
         drag.clone(),
         ghost.clone(),
         fixed.clone(),
         bounds.clone(),
+        stage.clone(),
     );
     let (d2, ghost2, hint2, fixed2, b2) = (
         drag.clone(),
@@ -503,6 +553,15 @@ fn attach_group_drag(
                     return false;
                 };
                 sub.widget.set_opacity(0.35);
+                // stop the row where it is (the scroll that began before the
+                // hold kicked in mustn't keep going while you drag)
+                if let Some(sc) = stage1.child().and_downcast::<gtk::ScrolledWindow>() {
+                    let a = sc.hadjustment();
+                    let v = a.value();
+                    sc.set_kinetic_scrolling(false);
+                    sc.set_kinetic_scrolling(true);
+                    a.set_value(v);
+                }
                 while let Some(ch) = ghost1.first_child() {
                     ghost1.remove(&ch);
                 }
@@ -549,12 +608,13 @@ fn attach_group_drag(
                     } else {
                         return None;
                     };
-                    let (tw, th) = (bw * 0.3, bh * 0.3);
+                    // a line along that edge of this one group, inside its card
+                    let t = 8.0;
                     let r = match side {
-                        Side::Left => (bx, by, tw, bh),
-                        Side::Right => (bx + bw - tw, by, tw, bh),
-                        Side::Top => (bx, by, bw, th),
-                        Side::Bottom => (bx, by + bh - th, bw, th),
+                        Side::Left => (bx, by, t, bh),
+                        Side::Right => (bx + bw - t, by, t, bh),
+                        Side::Top => (bx, by, bw, t),
+                        Side::Bottom => (bx, by + bh - t, bw, t),
                     };
                     Some((DropAt::Edge(g.num, side), r))
                 });

@@ -44,7 +44,11 @@ sway)
     [ -n "$PANEL" ] && echo "input type:tablet_tool map_to_output $PANEL"
     [ -f "$HOME/.config/rusttouch/sway.conf" ] && echo "include $HOME/.config/rusttouch/sway.conf"
   } > "$RUN/config"
-  exec sway -c "$RUN/config"
+  # sway's own messages (and why, if it ever crashes); the last session's
+  # log is kept as sway.log.old
+  LOGD="${XDG_RUNTIME_DIR:-/tmp}/rusttouch"
+  [ -f "$LOGD/sway.log" ] && mv -f "$LOGD/sway.log" "$LOGD/sway.log.old"
+  exec sway -c "$RUN/config" 2>"$LOGD/sway.log"
   ;;
 phoc)
   # every app window maximized between the bars, phone-style

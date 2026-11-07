@@ -95,6 +95,23 @@ pub fn setup(win: &gtk::ApplicationWindow, layer: Layer, a: Anchors, zone: Zone,
     });
 }
 
+/// Move a surface to another layer after creation.
+#[cfg(feature = "layer")]
+pub fn set_layer(win: &gtk::ApplicationWindow, layer: Layer) {
+    use gtk4_layer_shell::LayerShell;
+    LayerShell::set_layer(
+        win,
+        match layer {
+            Layer::Bottom => gtk4_layer_shell::Layer::Bottom,
+            Layer::Top => gtk4_layer_shell::Layer::Top,
+            Layer::Overlay => gtk4_layer_shell::Layer::Overlay,
+        },
+    );
+}
+
+#[cfg(not(feature = "layer"))]
+pub fn set_layer(_: &gtk::ApplicationWindow, _: Layer) {}
+
 /// Distance from the edges (top, right, bottom, left) for small popups.
 #[cfg(feature = "layer")]
 pub fn set_margins(win: &gtk::ApplicationWindow, top: i32, right: i32, bottom: i32, left: i32) {

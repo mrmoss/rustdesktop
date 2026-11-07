@@ -87,6 +87,8 @@ fn build(app: &gtk::Application) {
         for (name, hex) in config::ACCENTS {
             css.push_str(&format!(".accent-{name} {{ background: {hex}; }}\n"));
         }
+        // the custom swatch: a color wheel look
+        css.push_str(".accent-custom { background-image: linear-gradient(135deg, #f44, #fb3, #4d6, #4cf, #66f, #d4f); color: white; font-weight: 700; border-radius: 999px; min-width: 44px; min-height: 44px; padding: 0; }\n");
         for (name, grad) in config::BACKGROUNDS {
             css.push_str(&format!(".bg-{name} {{ background: {grad}; }}\n"));
         }
@@ -123,8 +125,9 @@ fn build(app: &gtk::Application) {
     close.connect_clicked(move |_| w.close());
 
     let stack = gtk::Stack::new();
-    stack.set_transition_type(gtk::StackTransitionType::SlideLeftRight);
-    stack.set_transition_duration(200);
+    // quick crossfade: a sliding page costs a lot on slower GPUs
+    stack.set_transition_type(gtk::StackTransitionType::Crossfade);
+    stack.set_transition_duration(110);
     window.set_child(Some(&stack));
 
     let ctx = Rc::new(Ctx {
@@ -199,7 +202,8 @@ fn update_theme_css(cfg: &Config) {
          scale slider {{ background: @rd_accent; border: none; box-shadow: none; min-width: 22px; min-height: 22px; }}\n\
          entry, spinbutton {{ background: alpha(@rd_fg, 0.08); color: @rd_fg; border: none; box-shadow: none; border-radius: 14px; caret-color: @rd_accent; }}\n\
          entry:focus-within, spinbutton:focus-within {{ box-shadow: inset 0 0 0 2px @rd_accent; }}\n\
-         dropdown > button {{ background: alpha(@rd_fg, 0.08); }}\n\
+         dropdown > button {{ background: alpha(@rd_fg, 0.08); min-height: 48px; padding: 6px 16px; }}\n\
+         popover listview row, popover list row, popover modelbutton {{ min-height: 48px; padding: 4px 12px; }}\n\
          popover > contents, popover > arrow {{ background: {card}; color: @rd_fg; border: none; box-shadow: 0 4px 18px alpha(black, 0.35); border-radius: 18px; }}\n\
          popover row:selected, popover row:hover {{ background: alpha(@rd_accent, 0.35); border-radius: 12px; }}\n\
          check:checked, radio:checked {{ background: @rd_accent; color: #10131a; border-color: @rd_accent; }}\n\
@@ -243,8 +247,8 @@ fn update_preview_css(cfg: &Config) {
     } else {
         config::keyboard_colors(cfg)
     };
-    let height: i32 = cfg.get("keyboard_height").parse().unwrap_or(260);
-    let radius: i32 = cfg.get("keyboard_rounding").parse().unwrap_or(4);
+    let height: i32 = cfg.get("keyboard_height").parse().unwrap_or(300);
+    let radius: i32 = cfg.get("keyboard_rounding").parse().unwrap_or(0);
     let font: i32 = cfg.get("keyboard_font_size").parse().unwrap_or(18);
     let css = format!(
         ".bg-preview {{ min-width: 92px; min-height: 140px; border-radius: 16px; }}\n\
@@ -263,11 +267,14 @@ fn update_preview_css(cfg: &Config) {
 
 /// A mock keyboard drawn with the chosen size, shape and colors.
 fn keyboard_preview() -> gtk::Widget {
+    // the RustTouch keyboard's portrait page
     let rows = [
+        "Esc Ctr ↑ ↓ ← → ' - / Tab",
+        "1 2 3 4 5 6 7 8 9 0",
         "q w e r t y u i o p",
         "a s d f g h j k l",
         "⇧ z x c v b n m ⌫",
-        "123 , ␣ . ⏎",
+        "⌨→ Cmp , ␣ . Enter",
     ];
     let vb = gtk::Box::new(gtk::Orientation::Vertical, 0);
     vb.add_css_class("kbp");
@@ -279,13 +286,26 @@ fn keyboard_preview() -> gtk::Widget {
             let l = gtk::Label::new(Some(k));
             l.add_css_class("kbp-key");
             l.set_hexpand(true);
-            if matches!(k, "⇧" | "⌫" | "123" | "⏎") {
+            if matches!(
+                k,
+                "⇧" | "⌫"
+                    | "⌨→"
+                    | "Enter"
+                    | "Esc"
+                    | "Ctr"
+                    | "Tab"
+                    | "Cmp"
+                    | "↑"
+                    | "↓"
+                    | "←"
+                    | "→"
+            ) {
                 l.add_css_class("kbp-sp");
             }
             if k == "␣" {
                 l.set_width_chars(14);
             }
-            if r == 1 && k == "g" {
+            if r == 3 && k == "g" {
                 l.add_css_class("kbp-press"); // show the "pressed" color too
             }
             hb.append(&l);
@@ -453,19 +473,15 @@ fn main_page(ctx: &Rc<Ctx>) -> gtk::Widget {
     entry.set_placeholder_text(Some("Search settings"));
     entry.set_hexpand(true);
     entry.add_css_class("settings-search");
-    // not focused when the app opens (that would pop up the keyboard) - only
-    // once you tap it
-    entry.set_can_focus(false);
-    let tap = gtk::GestureClick::new();
-    tap.set_propagation_phase(gtk::PropagationPhase::Capture);
-    let e = entry.clone();
-    tap.connect_pressed(move |_, _, _, _| {
-        if !e.can_focus() {
-            e.set_can_focus(true);
-            e.grab_focus();
-        }
+    // Not focused when the app opens (that would pop up the keyboard): the
+    // window's focus is cleared once it's shown. Tapping it focuses it as
+    // usual, and the keyboard comes up.
+    ctx.window.connect_map(|w| {
+        let w = w.clone();
+        let _ = glib::idle_add_local_once(move || {
+            gtk::prelude::GtkWindowExt::set_focus(&w, None::<&gtk::Widget>);
+        });
     });
-    entry.add_controller(tap);
 
     let results = gtk::ListBox::new();
     results.set_selection_mode(gtk::SelectionMode::None);
@@ -647,6 +663,7 @@ fn choice_row(
 ) -> gtk::Widget {
     let labels: Vec<&str> = options.iter().map(|o| o.1).collect();
     let dd = gtk::DropDown::from_strings(&labels);
+    center_dropdown(&dd);
     let current = cfg.get(key);
     if let Some(i) = options.iter().position(|o| o.0 == current) {
         dd.set_selected(i as u32);
@@ -680,10 +697,50 @@ fn appearance(ctx: &Rc<Ctx>) -> gtk::Widget {
         accents.append(&b);
         buttons.push(b);
     }
+    // custom: pick any color
+    let custom = gtk::Button::with_label("+");
+    custom.add_css_class("swatch");
+    custom.add_css_class("accent-custom");
+    custom.set_tooltip_text(Some("Custom color"));
+    if current.starts_with('#') {
+        custom.add_css_class("selected");
+    }
+    accents.append(&custom);
+    let named = buttons.clone();
     select_on_click(
         &buttons,
         Rc::new(|i| config::set("accent", config::ACCENTS[i].0)),
     );
+    {
+        let (c2, w) = (custom.clone(), ctx.window.clone());
+        custom.connect_clicked(move |_| {
+            let dialog = gtk::ColorDialog::new();
+            dialog.set_title("Accent color");
+            dialog.set_with_alpha(false);
+            let initial = gdk::RGBA::parse(config::accent_hex(&Config::load().get("accent"))).ok();
+            let (c3, named) = (c2.clone(), named.clone());
+            dialog.choose_rgba(
+                Some(&w),
+                initial.as_ref(),
+                None::<&gtk::gio::Cancellable>,
+                move |r| {
+                    if let Ok(c) = r {
+                        let hex = format!(
+                            "#{:02x}{:02x}{:02x}",
+                            (c.red() * 255.0).round() as u8,
+                            (c.green() * 255.0).round() as u8,
+                            (c.blue() * 255.0).round() as u8
+                        );
+                        config::set("accent", &hex);
+                        for b in &named {
+                            b.remove_css_class("selected");
+                        }
+                        c3.add_css_class("selected");
+                    }
+                },
+            );
+        });
+    }
 
     // lock screen message
     let msg = gtk::Entry::new();
@@ -810,6 +867,44 @@ fn theme_row(cfg: &Config) -> gtk::Widget {
     )
 }
 
+/// Drop-down lists show their choice centered on the button (GTK puts it at
+/// the left), and the choices in the open list too.
+fn center_dropdown(dd: &gtk::DropDown) {
+    let make = |centered: bool| {
+        let f = gtk::SignalListItemFactory::new();
+        f.connect_setup(move |_, item| {
+            let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+                return;
+            };
+            let l = gtk::Label::new(None);
+            l.set_xalign(if centered { 0.5 } else { 0.0 });
+            l.set_hexpand(true);
+            if centered {
+                l.set_halign(gtk::Align::Center);
+                l.set_justify(gtk::Justification::Center);
+            }
+            l.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            item.set_child(Some(&l));
+        });
+        f.connect_bind(|_, item| {
+            let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+                return;
+            };
+            let text = item
+                .item()
+                .and_downcast::<gtk::StringObject>()
+                .map(|o| o.string().to_string())
+                .unwrap_or_default();
+            if let Some(l) = item.child().and_downcast::<gtk::Label>() {
+                l.set_text(&text);
+            }
+        });
+        f
+    };
+    dd.set_factory(Some(&make(true)));
+    dd.set_list_factory(Some(&make(false)));
+}
+
 /// Swatch rows: mark the tapped one as selected and save.
 fn select_on_click(buttons: &[gtk::Button], save: Rc<dyn Fn(usize)>) {
     let all: Rc<Vec<gtk::Button>> = Rc::new(buttons.to_vec());
@@ -926,22 +1021,21 @@ fn power(_: &Rc<Ctx>) -> gtk::Widget {
 }
 
 const KB_HEIGHTS: &[(&str, &str)] = &[
-    ("auto", "Automatic"),
-    ("180", "Short (180 px)"),
-    ("220", "220 px"),
-    ("260", "Normal (260 px)"),
-    ("300", "300 px"),
+    ("auto", "Automatic (300 px)"),
+    ("220", "Short (220 px)"),
+    ("260", "260 px"),
+    ("300", "Normal (300 px)"),
     ("340", "Tall (340 px)"),
     ("400", "Very tall (400 px)"),
 ];
 
 const KB_HEIGHTS_LANDSCAPE: &[(&str, &str)] = &[
-    ("auto", "Automatic"),
-    ("120", "Short (120 px)"),
-    ("160", "160 px"),
-    ("200", "Normal (200 px)"),
-    ("240", "240 px"),
-    ("280", "Tall (280 px)"),
+    ("auto", "Automatic (260 px)"),
+    ("180", "Short (180 px)"),
+    ("220", "220 px"),
+    ("260", "Normal (260 px)"),
+    ("300", "Tall (300 px)"),
+    ("340", "Very tall (340 px)"),
 ];
 
 const KB_FONTS: &[(&str, &str)] = &[
@@ -953,7 +1047,7 @@ const KB_FONTS: &[(&str, &str)] = &[
 ];
 
 const KB_ROUNDING: &[(&str, &str)] = &[
-    ("auto", "Automatic"),
+    ("auto", "Automatic (square)"),
     ("0", "Square"),
     ("4", "Slightly rounded"),
     ("8", "Rounded"),
@@ -962,13 +1056,7 @@ const KB_ROUNDING: &[(&str, &str)] = &[
 
 const KB_STYLES: &[(&str, &str)] = &[
     ("theme", "Match RustTouch (theme + accent)"),
-    ("wvkbd", "wvkbd's own colors"),
-];
-
-const KB_PROGRAMS: &[(&str, &str)] = &[
-    ("auto", "Automatic"),
-    ("wvkbd", "wvkbd"),
-    ("squeekboard", "squeekboard"),
+    ("wvkbd", "Classic dark keys"),
 ];
 
 fn keyboard(_: &Rc<Ctx>) -> gtk::Widget {
@@ -1001,18 +1089,11 @@ fn keyboard(_: &Rc<Ctx>) -> gtk::Widget {
                     "Make room for the keyboard",
                     Some("Apps shrink to fit above it, so what you type into stays visible"),
                 ),
-                choice_row(
-                    &cfg,
-                    "keyboard_program",
-                    "Keyboard",
-                    Some("Applies at next login"),
-                    KB_PROGRAMS,
-                ),
             ],
         ),
         group("Preview", &[keyboard_preview()]),
         group(
-            "Size & look (wvkbd)",
+            "Size & look",
             &[
                 choice_row(
                     &cfg,
@@ -1028,20 +1109,26 @@ fn keyboard(_: &Rc<Ctx>) -> gtk::Widget {
                     None,
                     KB_HEIGHTS_LANDSCAPE,
                 ),
-                choice_row(&cfg, "keyboard_font_size", "Key labels", None, KB_FONTS),
                 choice_row(
                     &cfg,
-                    "keyboard_rounding",
-                    "Key shape",
-                    Some("If your wvkbd supports it"),
-                    KB_ROUNDING,
+                    "keyboard_landscape_layout",
+                    "Layout (landscape)",
+                    None,
+                    &[
+                        ("wide", "Wide: every key on one page"),
+                        ("compact", "Compact: like portrait"),
+                    ],
                 ),
+                choice_row(&cfg, "keyboard_font_size", "Key labels", None, KB_FONTS),
+                choice_row(&cfg, "keyboard_rounding", "Key shape", None, KB_ROUNDING),
                 choice_row(&cfg, "keyboard_style", "Colors", None, KB_STYLES),
             ],
         ),
         note(
-            "Changes apply right away (the keyboard restarts). ⌨ at the bottom right of the \
-             button bar opens and closes it by hand; Back (⌄) closes it too.",
+            "The RustTouch keyboard is used everywhere except the lock screen. Changes \
+             apply right away. ⌨ at the bottom right of the button bar opens it by hand; \
+             Back (⌄) closes it. ⌨→ switches to symbols and 🙂; Ctr / Alt / Sup work for \
+             shortcuts (tap one, then the key); hold a key to repeat it.",
         ),
     ])
 }
@@ -1174,6 +1261,7 @@ fn dyn_choice(
 ) -> gtk::Widget {
     let strs: Vec<&str> = labels.iter().map(String::as_str).collect();
     let dd = gtk::DropDown::from_strings(&strs);
+    center_dropdown(&dd);
     if let Some(i) = selected {
         dd.set_selected(i as u32);
     }
@@ -1417,6 +1505,7 @@ fn startup(ctx: &Rc<Ctx>) -> gtk::Widget {
     let names: Vec<String> = apps.iter().map(|a| a.display_name().to_string()).collect();
     let labels: Vec<&str> = names.iter().map(String::as_str).collect();
     let dd = gtk::DropDown::from_strings(&labels);
+    center_dropdown(&dd);
     dd.set_hexpand(true);
     let add_app = gtk::Button::with_label("Add");
     let (c, dd2) = (ctx.clone(), dd.clone());
@@ -1544,12 +1633,6 @@ fn clock_bars(_: &Rc<Ctx>) -> gtk::Widget {
             "Bars",
             &[
                 choice_row(&cfg, "top_bar_size", "Top bar height", None, TOP_SIZES),
-                switch_row(
-                    &cfg,
-                    "top_bar_autohide",
-                    "Auto-hide the top bar",
-                    Some("Over apps; tap or swipe the top edge to bring it back"),
-                ),
                 choice_row(
                     &cfg,
                     "nav_bar_size",
@@ -1559,9 +1642,21 @@ fn clock_bars(_: &Rc<Ctx>) -> gtk::Widget {
                 ),
                 switch_row(
                     &cfg,
-                    "nav_bar_autohide",
-                    "Auto-hide the button bar",
-                    Some("Over apps; tap the bottom edge to bring it back, swipe up for apps"),
+                    "bars_autohide",
+                    "Auto-hide the bars",
+                    Some("Over apps both bars hide; tap or swipe the top or bottom edge to bring them back"),
+                ),
+                choice_row(
+                    &cfg,
+                    "bars_autohide_delay",
+                    "Hide them after",
+                    Some("Touching a bar starts the wait over"),
+                    &[
+                        ("3", "3 seconds"),
+                        ("6", "6 seconds"),
+                        ("10", "10 seconds"),
+                        ("20", "20 seconds"),
+                    ],
                 ),
             ],
         ),

@@ -1,15 +1,27 @@
 #!/bin/sh
 # Build and install rusttouch system-wide, adding a "rusttouch (touch)" login session.
+# In a downloaded release (.tar.gz) the programs are already built: it just
+# installs them (no Rust needed).
 set -e
 cd "$(dirname "$0")"
-. ./ensure-layer-shell.sh
-cargo build --release
+if [ -x bin/rusttouch ] && [ -x bin/rusttouch-settings ]; then
+  BIN=bin
+  # the release brings its own copy of gtk4-layer-shell (it isn't packaged on 24.04)
+  if ls lib/libgtk4-layer-shell.so* >/dev/null 2>&1; then
+    sudo install -d /usr/local/lib/rusttouch
+    sudo cp -P lib/libgtk4-layer-shell.so* /usr/local/lib/rusttouch/
+  fi
+else
+  . ./ensure-layer-shell.sh
+  cargo build --release
+  BIN=target/release
+fi
 # replace an old "rdesk" install (RustTouch's old name)
 if [ -e /usr/local/bin/rdesk ] || [ -e /usr/share/wayland-sessions/rdesk.desktop ]; then
   ./uninstall-rdesk.sh
 fi
-sudo install -Dm755 target/release/rusttouch          /usr/local/bin/rusttouch
-sudo install -Dm755 target/release/rusttouch-settings /usr/local/bin/rusttouch-settings
+sudo install -Dm755 "$BIN/rusttouch"                 /usr/local/bin/rusttouch
+sudo install -Dm755 "$BIN/rusttouch-settings"        /usr/local/bin/rusttouch-settings
 sudo install -Dm755 session/rusttouch-session         /usr/local/bin/rusttouch-session
 sudo install -Dm755 session/rusttouch-shell           /usr/local/bin/rusttouch-shell
 sudo install -Dm644 session/sway/config         /usr/local/share/rusttouch/sway/config
@@ -23,6 +35,8 @@ sudo rm -f /usr/local/share/applications/rusttouch-settings.desktop
 sudo gtk-update-icon-cache -f -t /usr/local/share/icons/hicolor 2>/dev/null || true
 sudo install -Dm644 session/pam.d/rusttouch           /etc/pam.d/rusttouch
 sudo install -Dm644 session/logind-rusttouch.conf     /etc/systemd/logind.conf.d/rusttouch.conf
+sudo install -Dm644 session/rusttouch-session.target /usr/local/lib/systemd/user/rusttouch-session.target
+systemctl --user daemon-reload 2>/dev/null || true
 sudo install -Dm644 session/rusttouch-portals.conf    /etc/xdg/xdg-desktop-portal/rusttouch-portals.conf
 sudo install -Dm644 session/70-rusttouch-buttons.rules /etc/udev/rules.d/70-rusttouch-buttons.rules
 sudo udevadm control --reload-rules 2>/dev/null || true

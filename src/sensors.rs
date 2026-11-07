@@ -46,6 +46,7 @@ pub fn start_orientation(tx: Sender<Event>) {
     spawn_lines(&["monitor-sensor"], move |line| {
         if let Some(o) = parse_orientation(line) {
             let _ = tx.send(Event::Orientation(o));
+            crate::shell::wake();
         }
     });
 }
@@ -82,6 +83,7 @@ pub fn start_sleep_monitor(tx: Sender<Event>) {
         move |line| {
             if line.contains("PrepareForSleep") {
                 let _ = tx.send(Event::Sleep(line.contains("true")));
+                crate::shell::wake();
             }
         },
     );

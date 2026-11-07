@@ -197,11 +197,36 @@ pub fn navbar(shell: &Shell) -> gtk::Box {
         }
         s.show_keyboard(!up);
     });
-    let kb2 = kb.clone();
-    // while the keyboard is up, Back (⌄) closes it - no need for this button
-    shell.on_keyboard(move |up| kb2.set_opacity(if up { 0.0 } else { 1.0 }));
-    let kb3 = kb.clone();
-    shell.on_keyboard(move |up| kb3.set_sensitive(!up));
+    // Hidden while a keyboard is up (Back ⌄ closes it) and while a menu or
+    // recents shows (their text fields bring the keyboard themselves).
+    let sync: Rc<dyn Fn()> = {
+        let (kb, s) = (kb.clone(), shell.clone());
+        Rc::new(move || {
+            let hide = s.keyboard_up() || s.any_showing();
+            kb.set_opacity(if hide { 0.0 } else { 1.0 });
+            kb.set_sensitive(!hide);
+        })
+    };
+    {
+        let f = sync.clone();
+        shell.on_keyboard(move |_| f());
+    }
+    for o in shell::ALL {
+        let f = sync.clone();
+        shell.sheet(o).on_progress(move |p| {
+            f();
+            if p <= 0.001 {
+                // the menu only counts as closed a moment after it reaches the
+                // bottom: look again then, or ⌨ could stay hidden
+                let f = f.clone();
+                let _ = gtk::glib::timeout_add_local_once(
+                    std::time::Duration::from_millis(80),
+                    move || f(),
+                );
+            }
+        });
+    }
+    sync();
     let has_kb = shell.keyboard != crate::sys::Osk::Missing;
     left_slot.set_visible(has_kb);
     kb.set_visible(has_kb);
@@ -225,6 +250,13 @@ pub fn navbar(shell: &Shell) -> gtk::Box {
         },
     );
 
+    attach_group_swipe(&bar, shell);
+    bar
+}
+
+/// Swipe sideways (on the button bar, or the bottom edge when the bars
+/// auto-hide): slide to the previous / next app or window group.
+pub fn attach_group_swipe(w: &impl IsA<gtk::Widget>, shell: &Shell) {
     // swipe sideways along the bar: previous / next app or window group
     // (like Android's gesture bar). On sway the groups slide with the finger.
     let g = gtk::GestureDrag::new();
@@ -294,6 +326,5 @@ pub fn navbar(shell: &Shell) -> gtk::Box {
             }
         });
     }
-    bar.add_controller(g);
-    bar
+    w.add_controller(g);
 }

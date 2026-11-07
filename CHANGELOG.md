@@ -2,6 +2,12 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.24
+
+- Keyboard (wide landscape layout): the → key is as wide as the other
+  arrow keys. It was half a key wider, which also made its row half a key
+  longer than the others.
+
 ## 0.6.23
 
 - App icons that aren't in the icon theme in use are looked up in the other

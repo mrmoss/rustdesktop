@@ -246,7 +246,8 @@ const WIDE: &[Row] = &[
         ("🙂", 1.0),
         ("←", 1.0),
         ("↓", 1.0),
-        ("→", 1.5),
+        // (as wide as the other arrows: the row adds up to 14.5 like the others)
+        ("→", 1.0),
     ],
 ];
 /// The 🙂 page.

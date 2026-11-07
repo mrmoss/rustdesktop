@@ -51,9 +51,7 @@ mod imp {
 }
 
 glib::wrapper! {
-    pub struct Slide(ObjectSubclass<imp::Slide>)
-        @extends gtk::Widget,
-        @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget;
+    pub struct Slide(ObjectSubclass<imp::Slide>) @extends gtk::Widget;
 }
 
 impl Slide {

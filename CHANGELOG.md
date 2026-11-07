@@ -2,15 +2,54 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.9
+
+- Settings: the drop-down lists are gone. Tapping a choice now opens the
+  whole list over the window, Android-style: big rows, a round mark on the
+  chosen one, the list starts scrolled to it, scroll with a finger, tap one
+  to pick it, tap outside or Cancel to close. Long lists (themes, startup
+  apps) can be scrolled and picked from by touch now.
+- Settings: the chosen accent color is clear - it gets a ✓ and a ring
+  around it (the ring used to be drawn in the accent color itself, so it
+  vanished on the chosen swatch). Picking a preset after a custom color
+  takes the mark off the custom one.
+- Settings: the close button is the desktop's own round one, like other
+  apps' title bars (only close). Without an icon theme, a small round ✕.
+- Home screen: the remove area is now a thin strip hanging from the top
+  edge while you drag an icon. It opens up like a drawer as your finger
+  gets near the top, and the icon is only removed when let go right at the
+  edge ("Let go to remove"), so the top row is easy to drop onto. The icon
+  fades over it.
+- Top bar: the battery is checked every 3 seconds on its own, so plugging
+  in, unplugging and the percentage show right away (it waited for the full
+  status check, which could stop updating after the screen had been off).
+
 ## 0.6.8
 
-- Builds again with gtk4 0.11 / gtk4-layer-shell 0.8. `DesktopAppInfo` moved
-  out of `gio` into the new `gio-unix` crate (added as a dependency), and the
-  Slide widget now lists the interfaces every GTK widget has
-  (`Accessible`, `Buildable`, `ConstraintTarget`), which gtk4 0.11 requires.
-- Quieted the `signal_subscribe` deprecation warnings in the tray and the
-  screen-saver inhibitor. Its replacement drops the subscription when its
-  handle is dropped, and these need to last the whole session.
+Security review follow-up. Three of the four findings were already fixed in
+the code (the review looked at an older copy); the fourth is fixed here,
+plus two gaps found while checking:
+
+- Lock screen: already a real session lock (ext-session-lock-v1) wherever
+  the window manager offers one, so a crash or kill doesn't unlock the
+  screen. Two gaps fixed:
+  - the session now starts RustTouch again if it crashes (it used to just
+    stay gone - with the screen safely locked but no way to unlock it);
+  - the "it was locked" marker is now actually read: a restarted RustTouch
+    locks again straight away and shows the unlock screen.
+  A new login starts with the marker cleared. Gives up after 5 crashes in a
+  minute; stops when you log out.
+- Wi-Fi passwords: already sent over NetworkManager's D-Bus API, never on
+  a command line.
+- PAM: already only answers hidden password prompts (a visible prompt fails
+  the check), handles allocation failures and wipes the password copies.
+- Runtime folder: never a shared folder any more. It's
+  `$XDG_RUNTIME_DIR/rusttouch` when that's a private folder of yours,
+  otherwise `~/.cache/rusttouch-run` (it used to fall back to /tmp). The
+  folder is made with mode 0700 and checked to be a real folder (not a
+  link) owned by you; the control pipe is made with mode 0600 and checked
+  the same way. The session scripts use the same folder.
+- README: a Security section.
 
 ## 0.6.7
 

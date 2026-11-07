@@ -1,6 +1,6 @@
 [package]
 name = "rusttouch"
-version = "0.6.8"
+version = "0.6.9"
 edition = "2021"
 description = "A tiny Android-style touch shell for Wayland (layer-shell) with an X11/windowed fallback"
 license = "GPL-2.0-only"
@@ -8,11 +8,11 @@ license = "GPL-2.0-only"
 [dependencies]
 # gtk4-layer-shell 0.5 is built against gtk4 0.9 - bump them together.
 # (e.g. gtk4 0.10 + gtk4-layer-shell 0.6/0.7) if cargo complains about two gtk4 versions.
-gtk = { package = "gtk4", version = "0.11.5", features = ["v4_10"] }  # GTK 4.10+ (24.04 has 4.14)
-# gtk4 0.11 (gio 0.22) moved the Unix-only GIO types (DesktopAppInfo, ...) into their own crate.
-# Keep this on the same minor version as the gio that gtk4 pulls in.
-gio-unix = "0.22"
-gtk4-layer-shell = { version = "0.8.1", optional = true }
+gtk = { package = "gtk4", version = "0.9", features = ["v4_10"] }  # GTK 4.10+ (24.04 has 4.14)
+gtk4-layer-shell = { version = "0.5", optional = true }
+# the lock screen: ext-session-lock-v1, from the same C library (gtk4-layer-shell 1.1+).
+# 0.1.x is the release built for gtk4 0.9 - bump together with gtk4.
+gtk4-session-lock = { version = "0.1.2", optional = true }
 # window list (recents / switching / closing) via wlr-foreign-toplevel-management
 wayland-client = "0.31"
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }
@@ -29,4 +29,4 @@ lto = "thin"
 # Needs: sudo apt install libgtk4-layer-shell-dev
 # Build without it (windowed phone-emulator only): cargo run --no-default-features
 default = ["layer"]
-layer = ["dep:gtk4-layer-shell"]
+layer = ["dep:gtk4-layer-shell", "dep:gtk4-session-lock"]

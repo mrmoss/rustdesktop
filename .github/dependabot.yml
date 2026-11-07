@@ -11,9 +11,11 @@ updates:
     schedule:
       interval: weekly
     ignore:
-      # gtk4 and gtk4-layer-shell have to move together (each layer-shell release is built
+      # gtk4, gtk4-layer-shell and gtk4-session-lock have to move together (each layer-shell release is built
       # for one gtk4 release): bump them by hand, see Cargo.toml.
       - dependency-name: gtk4
         update-types: ['version-update:semver-minor', 'version-update:semver-major']
       - dependency-name: gtk4-layer-shell
+        update-types: ['version-update:semver-minor', 'version-update:semver-major']
+      - dependency-name: gtk4-session-lock
         update-types: ['version-update:semver-minor', 'version-update:semver-major']

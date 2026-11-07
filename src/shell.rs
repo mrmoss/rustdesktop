@@ -604,6 +604,21 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         }
         glib::ControlFlow::Continue
     });
+    // The battery on its own, every 3s: plugging in, unplugging and the
+    // percentage show up in the top bar right away (reading it is cheap, so
+    // this doesn't wait for the full status check above).
+    let s = shell.clone();
+    let _ = glib::timeout_add_seconds_local(3, move || {
+        let now = sys::battery();
+        if s.status.borrow().battery != now {
+            s.status.borrow_mut().battery = now;
+            let st = s.status.borrow().clone();
+            for f in s.status_listeners.borrow().iter() {
+                f(&st);
+            }
+        }
+        glib::ControlFlow::Continue
+    });
 
     // keep the front app's recents preview fresh (cheap: half size, no compression)
     if layered {
@@ -624,6 +639,13 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
     }
 
     step("status read");
+    // RustTouch stopped while the screen was locked (a crash): the compositor
+    // has kept the screen locked meanwhile; take the lock over again so you
+    // get the unlock screen back
+    if shell.layered && crate::lock::was_locked() {
+        eprintln!("rusttouch: the screen was locked when RustTouch stopped - locking again");
+        shell.lock();
+    }
     eprintln!("rusttouch: [{:.1}s] ready", uptime());
     // Background threads hand events over through `rx` and call wake(): the
     // GTK thread only wakes up when there is something to do (it used to
@@ -2507,7 +2529,8 @@ pub fn do_action(shell: &Shell, name: &str) {
     }
 }
 
-/// $XDG_RUNTIME_DIR/rusttouch/ctl - `rusttouch --do <action>` writes here.
+/// <runtime folder>/ctl (normally $XDG_RUNTIME_DIR/rusttouch/ctl) -
+/// `rusttouch --do <action>` writes here.
 pub fn ctl_path() -> PathBuf {
     sys::runtime_dir().join("ctl")
 }
@@ -2515,11 +2538,22 @@ pub fn ctl_path() -> PathBuf {
 fn start_ctl(tx: mpsc::Sender<Event>) {
     let path = ctl_path();
     let _ = std::fs::remove_file(&path);
+    // only you can write to it (and its folder is private too)
     let made = std::process::Command::new("mkfifo")
+        .arg("-m")
+        .arg("600")
         .arg(&path)
         .status()
         .map(|s| s.success())
-        .unwrap_or(false);
+        .unwrap_or(false)
+        && {
+            use std::os::unix::fs::{FileTypeExt, MetadataExt};
+            std::fs::symlink_metadata(&path)
+                .map(|m| {
+                    m.file_type().is_fifo() && m.uid() == sys::my_uid() && m.mode() & 0o077 == 0
+                })
+                .unwrap_or(false)
+        };
     if !made {
         eprintln!(
             "rusttouch: couldn't create {} - gestures won't work",

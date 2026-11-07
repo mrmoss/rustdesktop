@@ -25,7 +25,7 @@ at the bottom. Put two or more apps side by side when you need to.
 Contents: [How it works](#how-it-works-in-one-minute) · [Pictures](#pictures) ·
 [Install](#install) · [How to use it](#how-to-use-it) · [Apps side by side](#apps-side-by-side) ·
 [Settings](#settings) · [Building and releasing](#building-and-releasing) ·
-[Troubleshooting](#troubleshooting)
+[Security](#security) · [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -97,7 +97,7 @@ Download `rusttouch_<version>_amd64.deb` (or `arm64` for ARM) from the
 [Releases page](../../releases), then:
 
 ```sh
-sudo apt install ./rusttouch_0.6.8_amd64.deb
+sudo apt install ./rusttouch_0.6.9_amd64.deb
 ```
 
 Restart, and on the login screen pick **RustTouch** (click your name, then the gear or session
@@ -114,8 +114,8 @@ two copies don't get mixed up.
 Rust needed:
 
 ```sh
-tar xzf rusttouch-0.6.8-linux-x86_64.tar.gz
-cd rusttouch-0.6.8-linux-x86_64
+tar xzf rusttouch-0.6.9-linux-x86_64.tar.gz
+cd rusttouch-0.6.9-linux-x86_64
 ./deps.sh       # the helpers RustTouch uses (asks for your password)
 ./install.sh    # copies it into /usr/local and adds it to the login screen
 ```
@@ -181,7 +181,7 @@ goes away.
 | Close an app | ■, then flick its card up |
 | Show the keyboard | It opens when you tap a text box, or tap ⌨ in the bottom right |
 | Add an app to the home screen | Swipe up, press and hold the app, drag it onto the home screen |
-| Move or remove a home screen icon | Press and hold it, then drag it (onto **Remove** at the top to take it off) |
+| Move or remove a home screen icon | Press and hold it, then drag it. To take it off, drag it right up to the top edge: the **Remove** strip opens, let go there |
 | Bring the bars back (auto-hide, or a full-screen app) | Tap or swipe the top or bottom edge of the screen |
 | Lock, sleep, restart, power off | Swipe down; the buttons are at the bottom |
 | Change settings | Swipe down and tap **Settings** |
@@ -255,7 +255,7 @@ Intel/AMD and ARM on Ubuntu 24.04 (they work on 26.04 too) and puts them in a **
 
 ```sh
 # 1. bump `version` in Cargo.toml (and CHANGELOG.md) and commit it
-git tag v0.6.8
+git tag v0.6.9
 git push --tags
 # 2. wait for the "release" workflow, look over the draft under Releases, then publish it
 ```
@@ -267,6 +267,25 @@ built by this workflow from this repository; check one with
 every push on Ubuntu 24.04 (Intel/AMD and ARM) and 26.04, and checks that the `.deb` installs.
 Another (`audit`) checks the Rust libraries for known security problems every week. For public
 repositories, GitHub Actions is free.
+
+## Security
+
+- **The lock screen is a real session lock.** On sway (and other window managers that offer the
+  Wayland session-lock protocol, `ext-session-lock-v1`) the window manager itself keeps the
+  screen covered until RustTouch says your password was right. If RustTouch crashes or is
+  killed while locked, the screen stays locked; the session starts RustTouch again and it
+  shows the unlock screen again. The log says `lock screen: secure` at startup. On a window
+  manager without that protocol it falls back to a plain cover that a crash *does* remove, and
+  the log says so with a WARNING: don't rely on it there.
+- **Passwords** are checked with PAM (`/etc/pam.d/rusttouch`), the same way swaylock does. Only
+  PAM's hidden password question gets your password; any other question fails the check.
+  Copies of the password are wiped from memory after use.
+- **Wi-Fi passwords** go straight to NetworkManager over D-Bus, never on a command line (where
+  other programs could read them).
+- **RustTouch's runtime folder** (pictures of your apps, the log, its control pipe) is private:
+  `$XDG_RUNTIME_DIR/rusttouch`, or `~/.cache/rusttouch-run` if there is no runtime folder.
+  It's checked to be yours and closed to everyone else (mode 0700), and the control pipe can only
+  be written by you.
 
 ## Troubleshooting
 

@@ -1,7 +1,22 @@
 #!/bin/sh
 # Started by the compositor. Logs to $XDG_RUNTIME_DIR/rusttouch/rusttouch.log
-mkdir -p "${XDG_RUNTIME_DIR:-/tmp}/rusttouch"
-LOG="${XDG_RUNTIME_DIR:-/tmp}/rusttouch/rusttouch.log"
+
+# RustTouch's private runtime folder (logs, previews, its control pipe):
+# $XDG_RUNTIME_DIR/rusttouch, or ~/.cache/rusttouch-run without one - never a
+# shared folder like /tmp. Only you can open it. (src/sys.rs picks the same.)
+if [ -n "$XDG_RUNTIME_DIR" ] && [ -d "$XDG_RUNTIME_DIR" ] && [ ! -L "$XDG_RUNTIME_DIR" ] && [ -O "$XDG_RUNTIME_DIR" ]; then
+  RT="$XDG_RUNTIME_DIR/rusttouch"
+else
+  mkdir -p "${HOME:?}/.cache"
+  RT="$HOME/.cache/rusttouch-run"
+fi
+(umask 077; mkdir -p "$RT")
+if [ -L "$RT" ] || [ ! -d "$RT" ] || [ ! -O "$RT" ]; then
+  echo "rusttouch: $RT isn't a folder of yours - not starting" >&2
+  exit 1
+fi
+chmod 700 "$RT"
+LOG="$RT/rusttouch.log"
 # the last session's log is kept as rusttouch.log.old
 [ -f "$LOG" ] && mv -f "$LOG" "$LOG.old"
 echo "session: started at $(date +%T)" >"$LOG"
@@ -44,6 +59,29 @@ echo "session: graphical session target started at $(date +%T)" >>"$LOG"
 export GDK_DEBUG=no-portals
 export GTK_USE_PORTAL=0
 export GTK_A11Y=none
-echo "session: starting rusttouch at $(date +%T)" >>"$LOG"
-"${RUSTTOUCH_BIN:-rusttouch}" >>"$LOG" 2>&1
+# Start RustTouch, and start it again if it crashes. If the screen was
+# locked, the compositor keeps it locked meanwhile, and the new RustTouch
+# shows the unlock screen again. Gives up after 5 crashes in a minute, and
+# stops when the compositor has gone (logging out).
+crashes=0
+since=$(date +%s)
+while :; do
+  echo "session: starting rusttouch at $(date +%T)" >>"$LOG"
+  "${RUSTTOUCH_BIN:-rusttouch}" >>"$LOG" 2>&1
+  code=$?
+  [ "$code" -eq 0 ] && break
+  [ -n "$WAYLAND_DISPLAY" ] && [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/$WAYLAND_DISPLAY" ] || break
+  now=$(date +%s)
+  if [ $((now - since)) -gt 60 ]; then
+    crashes=0
+    since=$now
+  fi
+  crashes=$((crashes + 1))
+  if [ "$crashes" -ge 5 ]; then
+    echo "session: rusttouch keeps stopping (exit $code) - not starting it again" >>"$LOG"
+    break
+  fi
+  echo "session: rusttouch stopped (exit $code) at $(date +%T) - starting it again" >>"$LOG"
+  sleep 1
+done
 timeout 5 systemctl --user stop rusttouch-session.target 2>/dev/null

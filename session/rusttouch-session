@@ -12,6 +12,26 @@ export GDK_BACKEND="wayland,x11"
 [ -f "$HOME/.config/rusttouch/env" ] && . "$HOME/.config/rusttouch/env"
 
 SHARE=/usr/local/share/rusttouch
+
+# RustTouch's private runtime folder (logs, previews, its control pipe):
+# $XDG_RUNTIME_DIR/rusttouch, or ~/.cache/rusttouch-run without one - never a
+# shared folder like /tmp. Only you can open it. (src/sys.rs picks the same.)
+if [ -n "$XDG_RUNTIME_DIR" ] && [ -d "$XDG_RUNTIME_DIR" ] && [ ! -L "$XDG_RUNTIME_DIR" ] && [ -O "$XDG_RUNTIME_DIR" ]; then
+  RT="$XDG_RUNTIME_DIR/rusttouch"
+else
+  mkdir -p "${HOME:?}/.cache"
+  RT="$HOME/.cache/rusttouch-run"
+fi
+(umask 077; mkdir -p "$RT")
+if [ -L "$RT" ] || [ ! -d "$RT" ] || [ ! -O "$RT" ]; then
+  echo "rusttouch: $RT isn't a folder of yours - not starting" >&2
+  exit 1
+fi
+chmod 700 "$RT"
+export RUSTTOUCH_RUNTIME="$RT"
+# a new login starts unlocked (the marker only matters if RustTouch crashes
+# while locked during this session)
+rm -f "$RT/locked"
 COMP="${RUSTTOUCH_COMPOSITOR:-}"
 CONF="$HOME/.config/rusttouch/rusttouch.conf"
 if [ -z "$COMP" ] && [ -f "$CONF" ]; then
@@ -36,7 +56,7 @@ done
 
 case "$COMP" in
 sway)
-  RUN="${XDG_RUNTIME_DIR:-/tmp}/rusttouch/sway"
+  RUN="$RT/sway"
   mkdir -p "$RUN"
   {
     cat "$SHARE/sway/config"
@@ -46,7 +66,7 @@ sway)
   } > "$RUN/config"
   # sway's own messages (and why, if it ever crashes); the last session's
   # log is kept as sway.log.old
-  LOGD="${XDG_RUNTIME_DIR:-/tmp}/rusttouch"
+  LOGD="$RT"
   [ -f "$LOGD/sway.log" ] && mv -f "$LOGD/sway.log" "$LOGD/sway.log.old"
   exec sway -c "$RUN/config" 2>"$LOGD/sway.log"
   ;;
@@ -58,7 +78,7 @@ phoc)
   ;;
 labwc)
   # map the touchscreen to the built-in panel so touches rotate with it
-  RUN="${XDG_RUNTIME_DIR:-/tmp}/rusttouch/labwc"
+  RUN="$RT/labwc"
   mkdir -p "$RUN"
   cp "$SHARE/labwc/autostart" "$RUN/autostart"
   OUT="$PANEL"

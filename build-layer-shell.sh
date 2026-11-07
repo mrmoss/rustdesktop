@@ -4,7 +4,8 @@
 #   sudo apt install libgtk4-layer-shell-dev
 # Undo with: sudo ninja -C <builddir> uninstall  (or delete the files listed by it)
 set -e
-VERSION="${GTK4_LAYER_SHELL_VERSION:-v1.0.4}"
+# 1.1+ has the session lock the lock screen uses
+VERSION="${GTK4_LAYER_SHELL_VERSION:-v1.2.0}"
 
 sudo apt install -y git meson ninja-build pkg-config libwayland-dev wayland-protocols libgtk-4-dev
 

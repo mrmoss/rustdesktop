@@ -45,7 +45,7 @@ enum Dragged {
 }
 
 fn app(id: &str) -> Option<gio::AppInfo> {
-    gio_unix::DesktopAppInfo::new(id).map(|d| d.upcast())
+    gio::DesktopAppInfo::new(id).map(|d| d.upcast())
 }
 
 // Layouts are saved per orientation ("home_apps" = portrait,
@@ -252,13 +252,41 @@ fn move_float(h: &Home, x: f64, y: f64) {
         h.float
             .move_(w, x - f64::from(ICON) / 2.0, y - f64::from(ICON) / 2.0);
     }
-    let over_remove = bounds_contain(&h.remove, &h.root, x, y);
-    if over_remove {
-        h.remove.add_css_class("hot");
-    } else {
-        h.remove.remove_css_class("hot");
-    }
+    // (an app dragged in from the drawer has no remove strip)
+    let over_remove = h.remove.is_visible() && remove_state(h, y);
     set_hover(h, if over_remove { None } else { cell_at(h, x, y) });
+}
+
+/// The finger is this close to the top edge (px): the remove strip opens up.
+const REMOVE_NEAR: f64 = 130.0;
+/// ...and this close: letting go removes the icon.
+const REMOVE_HOT: f64 = 52.0;
+
+/// The remove strip is a thin bar at the very top while you drag an icon. It
+/// only opens up as the finger gets near the top edge, like a drawer, and an
+/// icon is removed only when let go right at the edge - so the top row of the
+/// home screen can still be reached. True when letting go would remove.
+fn remove_state(h: &Home, y: f64) -> bool {
+    let (near, hot) = (y < REMOVE_NEAR, y < REMOVE_HOT);
+    for (on, class) in [(near && !hot, "near"), (hot, "hot")] {
+        if on {
+            h.remove.add_css_class(class);
+        } else {
+            h.remove.remove_css_class(class);
+        }
+    }
+    h.remove.set_text(if hot {
+        "Let go to remove"
+    } else if near {
+        "✕  Remove"
+    } else {
+        "︿  Remove"
+    });
+    // the dragged icon fades a bit over the strip, like it's going away
+    if let Some(w) = h.floating.borrow().as_ref() {
+        w.set_opacity(if hot { 0.45 } else { 0.9 });
+    }
+    hot
 }
 
 fn stop_float(h: &Home) {
@@ -268,13 +296,14 @@ fn stop_float(h: &Home) {
     set_hover(h, None);
     h.remove.set_visible(false);
     h.remove.remove_css_class("hot");
+    h.remove.remove_css_class("near");
     h.dragging.borrow_mut().take();
 }
 
 /// Drop whatever is being dragged at (x, y).
 fn drop_at(h: &Home, x: f64, y: f64) {
     let dragged = h.dragging.borrow().clone();
-    let over_remove = bounds_contain(&h.remove, &h.root, x, y);
+    let over_remove = h.remove.is_visible() && y < REMOVE_HOT;
     let target = cell_at(h, x, y);
     stop_float(h);
     let Some(dragged) = dragged else { return };
@@ -346,10 +375,11 @@ pub fn build(shell: &Shell) -> Home {
     content.set_vexpand(true);
 
     // shown at the top, over the grid, only while an icon is dragged
-    let remove = gtk::Label::new(Some("✕  Remove"));
+    let remove = gtk::Label::new(Some("︿  Remove"));
     remove.add_css_class("remove-zone");
     remove.set_visible(false);
     remove.set_valign(gtk::Align::Start);
+    remove.set_can_target(false);
 
     let grid = gtk::Grid::new();
     grid.set_row_homogeneous(true);
@@ -412,6 +442,7 @@ pub fn build(shell: &Shell) -> Home {
                 *h1.dragging.borrow_mut() = Some(Dragged::Slot(i));
                 h1.remove.set_visible(true);
                 start_float(&h1, &v[i], x, y);
+                remove_state(&h1, y);
                 true
             }),
             motion: Box::new(move |x: f64, y: f64| move_float(&h2, x, y)),

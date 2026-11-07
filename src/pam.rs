@@ -56,17 +56,55 @@ extern "C" {
 extern "C" {
     fn calloc(n: usize, size: usize) -> *mut c_void;
     fn strdup(s: *const c_char) -> *mut c_char;
+    fn free(p: *mut c_void);
+    fn strlen(s: *const c_char) -> usize;
 }
 
-/// PAM asks questions; we answer every prompt with the password.
-/// PAM frees the replies with free(), so they must come from malloc.
+/// Overwrite a C string in place (so a password doesn't linger in memory).
+unsafe fn wipe_c(s: *mut c_char) {
+    if s.is_null() {
+        return;
+    }
+    let n = strlen(s);
+    for i in 0..n {
+        std::ptr::write_volatile(s.add(i), 0);
+    }
+}
+
+/// Overwrite a Rust string's bytes before it's dropped.
+pub fn wipe(s: String) {
+    let mut v = s.into_bytes();
+    for b in v.iter_mut() {
+        unsafe { std::ptr::write_volatile(b, 0) };
+    }
+    std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Free replies made so far (wiping any password in them) after a failure.
+unsafe fn drop_replies(replies: *mut PamResponse, n: isize) {
+    for i in 0..n {
+        let r = (*replies.offset(i)).resp;
+        if !r.is_null() {
+            wipe_c(r);
+            free(r as *mut c_void);
+        }
+    }
+    free(replies as *mut c_void);
+}
+
+/// PAM asks questions. Only a hidden-input prompt (the password question)
+/// gets the password. A visible-input prompt asks for something else (a user
+/// name, a one-time code shown on screen...) which the lock screen can't
+/// answer, so it fails the check instead of showing the password to it.
+/// Messages (errors, information) need no answer. PAM frees the replies with
+/// free(), so they must come from malloc.
 unsafe extern "C" fn conv(
     n: c_int,
     msgs: *mut *const PamMessage,
     resp: *mut *mut PamResponse,
     data: *mut c_void,
 ) -> c_int {
-    if n <= 0 || n > 32 {
+    if n <= 0 || n > 32 || msgs.is_null() || resp.is_null() {
         return PAM_CONV_ERR;
     }
     let replies = calloc(n as usize, std::mem::size_of::<PamResponse>()) as *mut PamResponse;
@@ -77,37 +115,64 @@ unsafe extern "C" fn conv(
     for i in 0..n as isize {
         let m = *msgs.offset(i);
         if m.is_null() {
-            continue;
+            drop_replies(replies, i);
+            return PAM_CONV_ERR;
         }
-        let style = (*m).msg_style;
-        if style == PAM_PROMPT_ECHO_OFF || style == PAM_PROMPT_ECHO_ON {
-            (*replies.offset(i)).resp = strdup(password);
+        match (*m).msg_style {
+            PAM_PROMPT_ECHO_OFF => {
+                let copy = strdup(password);
+                if copy.is_null() {
+                    drop_replies(replies, i);
+                    return PAM_BUF_ERR;
+                }
+                (*replies.offset(i)).resp = copy;
+            }
+            PAM_PROMPT_ECHO_ON => {
+                eprintln!(
+                    "rusttouch: the login system asked a question the lock screen can't answer"
+                );
+                drop_replies(replies, i);
+                return PAM_CONV_ERR;
+            }
+            // PAM_ERROR_MSG, PAM_TEXT_INFO: nothing to answer
+            _ => {}
         }
     }
     *resp = replies;
     PAM_SUCCESS
 }
 
-/// Blocking (PAM sleeps ~2s on failure) - call from a worker thread.
-pub fn authenticate(user: &str, password: &str) -> bool {
-    let (Ok(service), Ok(user), Ok(pw)) = (
-        CString::new("rusttouch"),
-        CString::new(user),
-        CString::new(password),
-    ) else {
+/// Blocking (PAM sleeps ~2s on failure) - call from a worker thread. The
+/// password is wiped from memory afterwards.
+pub fn authenticate(user: &str, password: String) -> bool {
+    let (Ok(service), Ok(user)) = (CString::new("rusttouch"), CString::new(user)) else {
+        wipe(password);
         return false;
     };
+    if password.as_bytes().contains(&0) {
+        wipe(password);
+        return false;
+    }
+    let pw = CString::new(password.as_bytes()).expect("checked for NUL above");
+    wipe(password);
+    let pw = pw.into_raw(); // wiped and freed below
     let c = PamConv {
         conv: Some(conv),
-        appdata_ptr: pw.as_ptr() as *mut c_void,
+        appdata_ptr: pw as *mut c_void,
     };
     let mut h: *mut c_void = ptr::null_mut();
-    unsafe {
+    let ok = unsafe {
         if pam_start(service.as_ptr(), user.as_ptr(), &c, &mut h) != PAM_SUCCESS {
-            return false;
+            false
+        } else {
+            let rc = pam_authenticate(h, 0);
+            pam_end(h, rc);
+            rc == PAM_SUCCESS
         }
-        let rc = pam_authenticate(h, 0);
-        pam_end(h, rc);
-        rc == PAM_SUCCESS
+    };
+    unsafe {
+        wipe_c(pw);
+        drop(CString::from_raw(pw));
     }
+    ok
 }

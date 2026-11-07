@@ -308,9 +308,6 @@ fn bus_acquired(tray: &Tray, conn: gio::DBusConnection) {
 
     // apps that quit: drop their icons
     let t = tray.clone();
-    // subscribe_to_signal() unsubscribes when its handle drops; these are meant to
-    // live for the whole session, so keep the old call.
-    #[allow(deprecated)]
     let _ = conn.signal_subscribe(
         Some("org.freedesktop.DBus"),
         Some("org.freedesktop.DBus"),
@@ -329,9 +326,6 @@ fn bus_acquired(tray: &Tray, conn: gio::DBusConnection) {
 
     // icon/status/title changed
     let t = tray.clone();
-    // subscribe_to_signal() unsubscribes when its handle drops; these are meant to
-    // live for the whole session, so keep the old call.
-    #[allow(deprecated)]
     let _ = conn.signal_subscribe(
         None,
         Some(ITEM_IFACE),

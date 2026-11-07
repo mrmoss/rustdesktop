@@ -163,12 +163,25 @@ button.qs-tile:checked:active { background-color: @rd_accent; }
 .home-cell.drop-target { background: rgba(255, 255, 255, 0.18); }
 .home-cell.lifted { opacity: 0.3; }
 .floating-icon { opacity: 0.9; }
+/* the remove strip: a thin bar hanging from the top edge while an icon is
+   dragged; opens like a drawer as the finger nears the top */
 .remove-zone {
-  background: rgba(242, 139, 130, 0.35); color: #fff;
-  border: 2px dashed rgba(255, 255, 255, 0.6); border-radius: 18px;
-  padding: 14px; margin: 10px 14px; font-weight: 700;
+  background: linear-gradient(to bottom, rgba(242, 80, 70, 0.55), rgba(242, 80, 70, 0.25));
+  color: rgba(255, 255, 255, 0.85);
+  border-radius: 0 0 22px 22px; margin: 0 40px; padding: 2px 12px;
+  min-height: 22px; font-size: 12px; font-weight: 700;
+  transition: min-height 140ms ease-out, margin 140ms ease-out, background 140ms ease-out, font-size 140ms ease-out;
 }
-.remove-zone.hot { background: rgba(242, 80, 70, 0.75); }
+.remove-zone.near {
+  min-height: 64px; margin: 0 18px; font-size: 15px; color: #fff;
+  background: linear-gradient(to bottom, rgba(242, 80, 70, 0.75), rgba(242, 80, 70, 0.4));
+}
+.remove-zone.hot {
+  min-height: 84px; margin: 0; font-size: 17px; color: #fff;
+  border-radius: 0 0 26px 26px;
+  background: linear-gradient(to bottom, rgba(230, 50, 40, 0.95), rgba(230, 50, 40, 0.7));
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.35);
+}
 .qs-list-header { font-weight: 700; font-size: 12px; opacity: 0.6; margin: 10px 8px 2px 8px; }
 
 /* ---------- tray ---------- */

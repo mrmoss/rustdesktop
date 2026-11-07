@@ -8,7 +8,7 @@ mod config;
 #[path = "../display.rs"]
 mod display;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk::prelude::*;
@@ -38,7 +38,7 @@ const CSS: &str = "
 .bg-same { background: alpha(currentColor, 0.08); font-size: 12px; }
 .note { font-size: 12px; opacity: 0.7; margin: 8px 6px; }
 .settings-search { margin: 4px 2px 10px 2px; min-height: 40px; }
-.close-btn { min-width: 36px; min-height: 36px; padding: 0; font-weight: 700; }
+.close-btn { min-width: 24px; min-height: 24px; padding: 0; font-size: 11px; font-weight: 700; }
 ";
 
 #[allow(deprecated)] // FileChooserNative: deprecated in GTK 4.10 but works fine
@@ -111,12 +111,21 @@ fn build(app: &gtk::Application) {
     let back = gtk::Button::with_label("‹ Back");
     back.set_visible(false);
     header.pack_start(&back);
-    // our own ✕: the stock close button's icon is missing without an icon theme
-    header.set_show_title_buttons(false);
+    // The desktop's own close button (round, like other apps' title bars),
+    // only the close one. If the icon theme has no close icon it would be an
+    // empty button: then our own small round ✕ instead.
+    let has_icon = gdk::Display::default()
+        .map(|d| gtk::IconTheme::for_display(&d).has_icon("window-close-symbolic"))
+        .unwrap_or(false);
+    header.set_decoration_layout(Some(":close"));
+    header.set_show_title_buttons(has_icon);
     let close = gtk::Button::with_label("✕");
     close.add_css_class("close-btn");
     close.set_tooltip_text(Some("Close"));
-    header.pack_end(&close);
+    close.set_valign(gtk::Align::Center);
+    if !has_icon {
+        header.pack_end(&close);
+    }
     let title = gtk::Label::new(Some("Settings"));
     title.add_css_class("title");
     header.set_title_widget(Some(&title));
@@ -128,7 +137,11 @@ fn build(app: &gtk::Application) {
     // quick crossfade: a sliding page costs a lot on slower GPUs
     stack.set_transition_type(gtk::StackTransitionType::Crossfade);
     stack.set_transition_duration(110);
-    window.set_child(Some(&stack));
+    // (choice lists open over everything, see picker())
+    let host = gtk::Overlay::new();
+    host.set_child(Some(&stack));
+    window.set_child(Some(&host));
+    HOST.with(|h| *h.borrow_mut() = Some(host));
 
     let ctx = Rc::new(Ctx {
         window: window.clone(),
@@ -186,9 +199,26 @@ fn update_theme_css(cfg: &Config) {
          window, window.background, headerbar, .page {{ background: linear-gradient({panel}, {panel}), {base}; color: @rd_fg; }}\n\
          headerbar {{ box-shadow: none; border: none; min-height: 52px; }}\n\
          headerbar .title {{ font-weight: 700; }}\n\
-         button:not(.swatch):not(.bg-swatch) {{ background: {tile}; color: @rd_fg; border: none; box-shadow: none; border-radius: 999px; padding: 6px 16px; }}\n\
-         button:not(.swatch):not(.bg-swatch):hover {{ background: alpha(@rd_fg, 0.16); }}\n\
-         button:not(.swatch):not(.bg-swatch):active, button:not(.swatch):not(.bg-swatch):checked {{ background: @rd_accent; color: #10131a; }}\n\
+         button:not(.swatch):not(.bg-swatch):not(.picker-item):not(.picker-cancel):not(.close-btn):not(.close) {{ background: {tile}; color: @rd_fg; border: none; box-shadow: none; border-radius: 999px; padding: 6px 16px; }}\n\
+         button:not(.swatch):not(.bg-swatch):not(.picker-item):not(.picker-cancel):not(.close-btn):not(.close):hover {{ background: alpha(@rd_fg, 0.16); }}\n\
+         button:not(.swatch):not(.bg-swatch):not(.picker-item):not(.picker-cancel):not(.close-btn):not(.close):active, button:not(.swatch):not(.bg-swatch):not(.picker-item):not(.picker-cancel):not(.close-btn):not(.close):checked {{ background: @rd_accent; color: #10131a; }}\n\
+         button.close-btn {{ background: alpha(@rd_fg, 0.1); color: @rd_fg; border: none; box-shadow: none; border-radius: 999px; padding: 0; margin: 0 4px; }}\n\
+         button.close-btn:hover {{ background: alpha(@rd_fg, 0.18); }}\n\
+         windowcontrols button {{ min-width: 24px; min-height: 24px; padding: 0; margin: 0 4px; border-radius: 999px; background: alpha(@rd_fg, 0.1); color: @rd_fg; border: none; box-shadow: none; }}\n\
+         windowcontrols button:hover {{ background: alpha(@rd_fg, 0.18); }}\n\
+         button.picker:not(.swatch) {{ background: alpha(@rd_fg, 0.08); min-height: 40px; padding: 4px 14px 4px 18px; }}\n\
+         button.picker:not(.swatch):active {{ background: alpha(@rd_accent, 0.35); color: @rd_fg; }}\n\
+         .picker-arrow {{ opacity: 0.6; font-size: 11px; }}\n\
+         .picker-backdrop {{ background: alpha(black, 0.45); }}\n\
+         .picker-card {{ background: linear-gradient({card}, {card}), {base}; color: @rd_fg; border-radius: 26px; padding: 18px 8px 10px 8px; box-shadow: 0 10px 34px alpha(black, 0.4); }}\n\
+         .picker-title {{ font-weight: 700; font-size: 17px; margin: 0 16px 10px 16px; }}\n\
+         button.picker-item {{ background: none; color: @rd_fg; border: none; box-shadow: none; border-radius: 16px; min-height: 52px; padding: 0 14px; }}\n\
+         button.picker-item:hover {{ background: alpha(@rd_fg, 0.06); }}\n\
+         button.picker-item:active {{ background: alpha(@rd_fg, 0.12); }}\n\
+         button.picker-item.on {{ background: alpha(@rd_accent, 0.18); font-weight: 700; }}\n\
+         .picker-radio {{ min-width: 20px; min-height: 20px; border-radius: 999px; border: 2px solid alpha(@rd_fg, 0.5); }}\n\
+         button.picker-item.on .picker-radio {{ border: 6px solid @rd_accent; min-width: 12px; min-height: 12px; }}\n\
+         button.picker-cancel {{ background: none; border: none; box-shadow: none; border-radius: 999px; padding: 6px 16px; margin: 8px 8px 0 0; font-weight: 700; color: @rd_accent; }}\n\
          button.swatch, button.bg-swatch {{ padding: 0; }}\n\
          .group {{ background: {tile}; border-radius: 22px; }}\n\
          list, listview, row, .group > * {{ background: transparent; color: @rd_fg; }}\n\
@@ -207,12 +237,14 @@ fn update_theme_css(cfg: &Config) {
          popover > contents, popover > arrow {{ background: {card}; color: @rd_fg; border: none; box-shadow: 0 4px 18px alpha(black, 0.35); border-radius: 18px; }}\n\
          popover row:selected, popover row:hover {{ background: alpha(@rd_accent, 0.35); border-radius: 12px; }}\n\
          check:checked, radio:checked {{ background: @rd_accent; color: #10131a; border-color: @rd_accent; }}\n\
-         .swatch.selected, .bg-swatch.selected {{ border-color: @rd_accent; }}\n\
+         .bg-swatch.selected {{ border-color: @rd_accent; }}\n\
+         .swatch.selected {{ border-color: transparent; box-shadow: 0 0 0 3px {base}, 0 0 0 6px @rd_fg; color: white; font-weight: 800; font-size: 20px; text-shadow: 0 1px 3px alpha(black, 0.7); }}\n\
          scrollbar slider {{ background: alpha(@rd_fg, 0.35); }}\n",
         fg = p.fg,
         panel = p.panel_bg,
         tile = p.tile_bg,
         card = p.card_bg,
+        base = base,
     );
     THEME_CSS.with(|t| t.load_from_data(&css));
 }
@@ -661,19 +693,15 @@ fn choice_row(
     sub: Option<&str>,
     options: &'static [(&'static str, &'static str)],
 ) -> gtk::Widget {
-    let labels: Vec<&str> = options.iter().map(|o| o.1).collect();
-    let dd = gtk::DropDown::from_strings(&labels);
-    center_dropdown(&dd);
+    let labels: Vec<String> = options.iter().map(|o| o.1.to_string()).collect();
     let current = cfg.get(key);
-    if let Some(i) = options.iter().position(|o| o.0 == current) {
-        dd.set_selected(i as u32);
-    }
-    dd.connect_selected_notify(move |d| {
-        if let Some((v, _)) = options.get(d.selected() as usize) {
+    let selected = options.iter().position(|o| o.0 == current);
+    let (b, _) = picker(title, labels, selected, move |i| {
+        if let Some((v, _)) = options.get(i) {
             config::set(key, v);
         }
     });
-    row(title, sub, &dd)
+    row(title, sub, &b)
 }
 
 // ------------------------------------------------------------ pages
@@ -693,6 +721,7 @@ fn appearance(ctx: &Rc<Ctx>) -> gtk::Widget {
         b.set_tooltip_text(Some(name));
         if *name == current {
             b.add_css_class("selected");
+            b.set_label("✓");
         }
         accents.append(&b);
         buttons.push(b);
@@ -704,13 +733,31 @@ fn appearance(ctx: &Rc<Ctx>) -> gtk::Widget {
     custom.set_tooltip_text(Some("Custom color"));
     if current.starts_with('#') {
         custom.add_css_class("selected");
+        custom.set_label("✓");
     }
     accents.append(&custom);
     let named = buttons.clone();
-    select_on_click(
-        &buttons,
-        Rc::new(|i| config::set("accent", config::ACCENTS[i].0)),
-    );
+    // the chosen color gets a ring around it and a ✓ (the custom one shows + again)
+    {
+        let (all, cu) = (buttons.clone(), custom.clone());
+        for (i, b) in buttons.iter().enumerate() {
+            let (all, cu) = (all.clone(), cu.clone());
+            b.connect_clicked(move |_| {
+                for (j, o) in all.iter().enumerate() {
+                    if i == j {
+                        o.add_css_class("selected");
+                        o.set_label("✓");
+                    } else {
+                        o.remove_css_class("selected");
+                        o.set_label("");
+                    }
+                }
+                cu.remove_css_class("selected");
+                cu.set_label("+");
+                config::set("accent", config::ACCENTS[i].0);
+            });
+        }
+    }
     {
         let (c2, w) = (custom.clone(), ctx.window.clone());
         custom.connect_clicked(move |_| {
@@ -734,8 +781,10 @@ fn appearance(ctx: &Rc<Ctx>) -> gtk::Widget {
                         config::set("accent", &hex);
                         for b in &named {
                             b.remove_css_class("selected");
+                            b.set_label("");
                         }
                         c3.add_css_class("selected");
+                        c3.set_label("✓");
                     }
                 },
             );
@@ -867,386 +916,170 @@ fn theme_row(cfg: &Config) -> gtk::Widget {
     )
 }
 
-/// Drop-down lists show their choice centered on the button (GTK puts it at
-/// the left), and the choices in the open list too.
-fn center_dropdown(dd: &gtk::DropDown) {
-    let make = |centered: bool| {
-        let f = gtk::SignalListItemFactory::new();
-        f.connect_setup(move |_, item| {
-            let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
-                return;
-            };
-            let l = gtk::Label::new(None);
-            l.set_xalign(if centered { 0.5 } else { 0.0 });
-            l.set_hexpand(true);
-            if centered {
-                l.set_halign(gtk::Align::Center);
-                l.set_justify(gtk::Justification::Center);
-            }
-            l.set_ellipsize(gtk::pango::EllipsizeMode::End);
-            item.set_child(Some(&l));
-        });
-        f.connect_bind(|_, item| {
-            let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
-                return;
-            };
-            let text = item
-                .item()
-                .and_downcast::<gtk::StringObject>()
-                .map(|o| o.string().to_string())
-                .unwrap_or_default();
-            if let Some(l) = item.child().and_downcast::<gtk::Label>() {
-                l.set_text(&text);
-            }
-        });
-        f
-    };
-    dd.set_factory(Some(&make(true)));
-    dd.set_list_factory(Some(&make(false)));
+thread_local! {
+    /// covers the whole window: choice lists open on top of it
+    static HOST: RefCell<Option<gtk::Overlay>> = const { RefCell::new(None) };
 }
 
-/// Swatch rows: mark the tapped one as selected and save.
-fn select_on_click(buttons: &[gtk::Button], save: Rc<dyn Fn(usize)>) {
-    let all: Rc<Vec<gtk::Button>> = Rc::new(buttons.to_vec());
-    for (i, b) in buttons.iter().enumerate() {
-        let (all, save) = (all.clone(), save.clone());
-        b.connect_clicked(move |_| {
-            for (j, o) in all.iter().enumerate() {
-                if i == j {
-                    o.add_css_class("selected");
-                } else {
-                    o.remove_css_class("selected");
-                }
+/// A choice: a button showing what's chosen. Tapping it opens the whole list
+/// over the window (like Android's settings): big rows, the chosen one marked,
+/// scroll with a finger, tap one to pick it. Tapping outside closes it.
+/// Returns the button and the chosen index.
+fn picker(
+    title: &str,
+    labels: Vec<String>,
+    selected: Option<usize>,
+    on_change: impl Fn(usize) + 'static,
+) -> (gtk::Button, Rc<Cell<usize>>) {
+    let sel = Rc::new(Cell::new(selected.unwrap_or(0)));
+    let labels = Rc::new(labels);
+    let button = gtk::Button::new();
+    button.add_css_class("picker");
+    let hb = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let shown = gtk::Label::new(labels.get(sel.get()).map(String::as_str));
+    shown.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    shown.set_max_width_chars(20);
+    shown.set_hexpand(true);
+    let arrow = gtk::Label::new(Some("▾"));
+    arrow.add_css_class("picker-arrow");
+    hb.append(&shown);
+    hb.append(&arrow);
+    button.set_child(Some(&hb));
+    let on_change: Rc<dyn Fn(usize)> = Rc::new(on_change);
+    let title = title.to_string();
+    let (l, s) = (labels.clone(), sel.clone());
+    button.connect_clicked(move |_| {
+        open_picker(&title, &l, &s, &shown, &on_change);
+    });
+    (button, sel)
+}
+
+fn open_picker(
+    title: &str,
+    labels: &Rc<Vec<String>>,
+    sel: &Rc<Cell<usize>>,
+    shown: &gtk::Label,
+    on_change: &Rc<dyn Fn(usize)>,
+) {
+    let Some(host) = HOST.with(|h| h.borrow().clone()) else {
+        return;
+    };
+    // dimmed backdrop over the window, the list in a card in the middle
+    let backdrop = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    backdrop.add_css_class("picker-backdrop");
+    backdrop.set_hexpand(true);
+    backdrop.set_vexpand(true);
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    card.add_css_class("picker-card");
+    card.set_halign(gtk::Align::Center);
+    card.set_valign(gtk::Align::Center);
+    card.set_vexpand(true);
+    let width = host.width().max(300);
+    let height = host.height().max(400);
+    card.set_size_request((width - 40).min(380), -1);
+    let heading = gtk::Label::new(Some(title));
+    heading.add_css_class("picker-title");
+    heading.set_xalign(0.0);
+    card.append(&heading);
+
+    let list = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    let scroll = gtk::ScrolledWindow::new();
+    scroll.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    scroll.set_propagate_natural_height(true);
+    scroll.set_max_content_height((height as f64 * 0.65) as i32);
+    scroll.set_child(Some(&list));
+    card.append(&scroll);
+
+    let close: Rc<dyn Fn()> = {
+        let (host, backdrop) = (host.clone(), backdrop.clone());
+        Rc::new(move || {
+            if backdrop.parent().is_some() {
+                host.remove_overlay(&backdrop);
             }
-            save(i);
+        })
+    };
+    let mut chosen_row: Option<gtk::Button> = None;
+    for (i, text) in labels.iter().enumerate() {
+        let row = gtk::Button::new();
+        row.add_css_class("picker-item");
+        let hb = gtk::Box::new(gtk::Orientation::Horizontal, 14);
+        let radio = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        radio.add_css_class("picker-radio");
+        radio.set_valign(gtk::Align::Center);
+        let l = gtk::Label::new(Some(text));
+        l.set_xalign(0.0);
+        l.set_hexpand(true);
+        l.set_wrap(true);
+        hb.append(&radio);
+        hb.append(&l);
+        row.set_child(Some(&hb));
+        if i == sel.get() {
+            row.add_css_class("on");
+            chosen_row = Some(row.clone());
+        }
+        let (sel, shown, on_change, close, text) = (
+            sel.clone(),
+            shown.clone(),
+            on_change.clone(),
+            close.clone(),
+            text.clone(),
+        );
+        row.connect_clicked(move |_| {
+            close();
+            if sel.replace(i) != i {
+                shown.set_text(&text);
+                on_change(i);
+            }
+        });
+        list.append(&row);
+    }
+    let cancel = gtk::Button::with_label("Cancel");
+    cancel.add_css_class("picker-cancel");
+    cancel.set_halign(gtk::Align::End);
+    {
+        let close = close.clone();
+        cancel.connect_clicked(move |_| close());
+    }
+    card.append(&cancel);
+    backdrop.append(&card);
+
+    // a tap on the dimmed part (not the card) closes the list
+    let tap = gtk::GestureClick::new();
+    {
+        let (b, close) = (backdrop.clone(), close.clone());
+        tap.connect_released(move |_, _, x, y| {
+            if b.pick(x, y, gtk::PickFlags::DEFAULT).as_ref() == Some(b.upcast_ref::<gtk::Widget>()) {
+                close();
+            }
         });
     }
-}
-
-#[allow(deprecated)]
-fn choose_image(ctx: &Rc<Ctx>, label: &gtk::Label, key: &'static str) {
-    let dialog = gtk::FileChooserNative::new(
-        Some("Choose a picture"),
-        Some(&ctx.window),
-        gtk::FileChooserAction::Open,
-        Some("Choose"),
-        Some("Cancel"),
-    );
-    let filter = gtk::FileFilter::new();
-    filter.add_mime_type("image/*");
-    filter.set_name(Some("Images"));
-    dialog.add_filter(&filter);
-    let (c, l) = (ctx.clone(), label.clone());
-    dialog.connect_response(move |d, resp| {
-        if resp == gtk::ResponseType::Accept {
-            if let Some(path) = d.file().and_then(|f| f.path()) {
-                let p = path.to_string_lossy().into_owned();
-                config::set(key, &p);
-                l.set_text(&p);
+    backdrop.add_controller(tap);
+    // Escape closes it too
+    let keys = gtk::EventControllerKey::new();
+    {
+        let close = close.clone();
+        keys.connect_key_pressed(move |_, k, _, _| {
+            if k == gdk::Key::Escape {
+                close();
+                return glib::Propagation::Stop;
             }
-        }
-        c.chooser.borrow_mut().take();
-    });
-    dialog.show();
-    *ctx.chooser.borrow_mut() = Some(dialog);
-}
+            glib::Propagation::Proceed
+        });
+    }
+    backdrop.add_controller(keys);
+    host.add_overlay(&backdrop);
 
-const SCREEN_OFF: &[(&str, &str)] = &[
-    ("0", "Never"),
-    ("30", "30 seconds"),
-    ("60", "1 minute"),
-    ("120", "2 minutes"),
-    ("300", "5 minutes"),
-    ("600", "10 minutes"),
-    ("1800", "30 minutes"),
-];
-
-const SLEEP: &[(&str, &str)] = &[
-    ("0", "Never"),
-    ("300", "5 minutes"),
-    ("600", "10 minutes"),
-    ("900", "15 minutes"),
-    ("1800", "30 minutes"),
-    ("3600", "1 hour"),
-];
-
-fn power(_: &Rc<Ctx>) -> gtk::Widget {
-    let cfg = Config::load();
-    page(&[
-        group(
-            "When idle",
-            &[
-                choice_row(
-                    &cfg,
-                    "screen_off_after",
-                    "Turn screen off after",
-                    None,
-                    SCREEN_OFF,
-                ),
-                switch_row(
-                    &cfg,
-                    "lock_on_screen_off",
-                    "Lock when the screen turns off",
-                    None,
-                ),
-                choice_row(&cfg, "sleep_after", "Sleep after", None, SLEEP),
-            ],
-        ),
-        group(
-            "Power button",
-            &[
-                choice_row(&cfg, "power_button", "Press", None, config::POWER_ACTIONS),
-                choice_row(
-                    &cfg,
-                    "power_button_hold",
-                    "Press and hold (if supported)",
-                    Some("Many laptops only report the button once it's released, so a hold can't be seen"),
-                    config::POWER_ACTIONS,
-                ),
-                choice_row(
-                    &cfg,
-                    "power_button_double",
-                    "Double press (if supported)",
-                    Some("Not every power button reports quick repeats. Anything but \"Do nothing\" makes a single press wait 0.3s"),
-                    config::POWER_ACTIONS,
-                ),
-            ],
-        ),
-        note(
-            "When the screen is off, any press of the power button turns it back on. \
-             Power button handling needs the udev rule from install.sh (then reboot); \
-             without rusttouch running, the button sleeps.",
-        ),
-    ])
-}
-
-const KB_HEIGHTS: &[(&str, &str)] = &[
-    ("auto", "Automatic (300 px)"),
-    ("220", "Short (220 px)"),
-    ("260", "260 px"),
-    ("300", "Normal (300 px)"),
-    ("340", "Tall (340 px)"),
-    ("400", "Very tall (400 px)"),
-];
-
-const KB_HEIGHTS_LANDSCAPE: &[(&str, &str)] = &[
-    ("auto", "Automatic (260 px)"),
-    ("180", "Short (180 px)"),
-    ("220", "220 px"),
-    ("260", "Normal (260 px)"),
-    ("300", "Tall (300 px)"),
-    ("340", "Very tall (340 px)"),
-];
-
-const KB_FONTS: &[(&str, &str)] = &[
-    ("auto", "Automatic"),
-    ("14", "Small"),
-    ("18", "Medium"),
-    ("22", "Large"),
-    ("26", "Extra large"),
-];
-
-const KB_ROUNDING: &[(&str, &str)] = &[
-    ("auto", "Automatic (square)"),
-    ("0", "Square"),
-    ("4", "Slightly rounded"),
-    ("8", "Rounded"),
-    ("14", "Very rounded"),
-];
-
-const KB_STYLES: &[(&str, &str)] = &[
-    ("theme", "Match RustTouch (theme + accent)"),
-    ("wvkbd", "Classic dark keys"),
-];
-
-fn keyboard(_: &Rc<Ctx>) -> gtk::Widget {
-    let cfg = Config::load();
-    page(&[
-        group(
-            "On-screen keyboard",
-            &[
-                switch_row(
-                    &cfg,
-                    "keyboard_auto",
-                    "Show automatically",
-                    Some("Pop up when you tap a text field"),
-                ),
-                choice_row(
-                    &cfg,
-                    "cursor_blink",
-                    "Text cursor blinking",
-                    Some("In RustTouch and in apps"),
-                    &[
-                        ("standard", "Standard"),
-                        ("slow", "Slow"),
-                        ("fast", "Fast"),
-                        ("off", "Off (steady)"),
-                    ],
-                ),
-                switch_row(
-                    &cfg,
-                    "keyboard_resize_apps",
-                    "Make room for the keyboard",
-                    Some("Apps shrink to fit above it, so what you type into stays visible"),
-                ),
-            ],
-        ),
-        group("Preview", &[keyboard_preview()]),
-        group(
-            "Size & look",
-            &[
-                choice_row(
-                    &cfg,
-                    "keyboard_height",
-                    "Height (portrait)",
-                    None,
-                    KB_HEIGHTS,
-                ),
-                choice_row(
-                    &cfg,
-                    "keyboard_height_landscape",
-                    "Height (landscape)",
-                    None,
-                    KB_HEIGHTS_LANDSCAPE,
-                ),
-                choice_row(
-                    &cfg,
-                    "keyboard_landscape_layout",
-                    "Layout (landscape)",
-                    None,
-                    &[
-                        ("wide", "Wide: every key on one page"),
-                        ("compact", "Compact: like portrait"),
-                    ],
-                ),
-                choice_row(&cfg, "keyboard_font_size", "Key labels", None, KB_FONTS),
-                choice_row(&cfg, "keyboard_rounding", "Key shape", None, KB_ROUNDING),
-                choice_row(&cfg, "keyboard_style", "Colors", None, KB_STYLES),
-            ],
-        ),
-        note(
-            "The RustTouch keyboard is used everywhere except the lock screen. Changes \
-             apply right away. ⌨ at the bottom right of the button bar opens it by hand; \
-             Back (⌄) closes it. ⌨→ switches to symbols and 🙂; Ctr / Alt / Sup work for \
-             shortcuts (tap one, then the key); hold a key to repeat it.",
-        ),
-    ])
-}
-
-fn network(_: &Rc<Ctx>) -> gtk::Widget {
-    let cfg = Config::load();
-    let more = gtk::Button::with_label("Open");
-    more.connect_clicked(|_| {
-        for (cmd, args) in [
-            ("nm-connection-editor", &[][..]),
-            ("gnome-control-center", &["wifi"][..]),
-        ] {
-            let ok = std::process::Command::new(cmd)
-                .args(args)
-                .env("XDG_CURRENT_DESKTOP", "GNOME")
-                .spawn()
-                .is_ok();
-            if ok {
-                break;
+    // start with the chosen one in view
+    if let Some(row) = chosen_row {
+        let scroll = scroll.clone();
+        let _ = glib::idle_add_local_once(move || {
+            if let Some(r) = row.compute_bounds(&list) {
+                let adj = scroll.vadjustment();
+                let y = f64::from(r.y()) - adj.page_size() / 2.0 + f64::from(r.height()) / 2.0;
+                adj.set_value(y.clamp(adj.lower(), (adj.upper() - adj.page_size()).max(0.0)));
             }
-        }
-    });
-    page(&[group(
-        "Network",
-        &[
-            switch_row(&cfg, "wifi", "Wi-Fi", None),
-            switch_row(&cfg, "bluetooth", "Bluetooth", None),
-            row("Wi-Fi networks & passwords", None, &more),
-        ],
-    )])
-}
-
-fn windows(_: &Rc<Ctx>) -> gtk::Widget {
-    let cfg = Config::load();
-    let on_sway = std::env::var_os("SWAYSOCK").is_some();
-    let status = if on_sway {
-        "Split screen is on (running on sway)."
-    } else {
-        "Split screen needs sway: sudo apt install sway, pick Automatic or sway below, then log out and back in."
-    };
-    page(&[
-        group(
-            "Window manager",
-            &[choice_row(
-                &cfg,
-                "compositor",
-                "Compositor",
-                Some("Takes effect next login"),
-                &[
-                    ("auto", "Automatic (sway if installed)"),
-                    ("sway", "sway - split screen"),
-                    ("phoc", "phoc - phone style, one app at a time"),
-                    ("labwc", "labwc - desktop style"),
-                ],
-            )],
-        ),
-        note(status),
-        group(
-            "Split screen",
-            &[
-                choice_row(
-                    &cfg,
-                    "window_mode",
-                    "New apps",
-                    None,
-                    &[
-                        ("fullscreen", "Open full screen (tablet)"),
-                        ("tile", "Open next to what's showing (desktop)"),
-                    ],
-                ),
-                choice_row(
-                    &cfg,
-                    "split_direction",
-                    "Split puts apps",
-                    None,
-                    &[
-                        ("auto", "Automatic (by screen shape)"),
-                        ("side", "Side by side"),
-                        ("stacked", "Top and bottom"),
-                    ],
-                ),
-            ],
-        ),
-        group(
-            "How to use split screen",
-            &[{
-                let l = gtk::Label::new(Some(
-                    "• Recents (■) shows window groups: apps that share the screen are one card.\n\
-                     • Hold a window in a card and drag it onto the edge of another window (in the \
-                     same group or another one) to put it on that side, or onto empty space to give \
-                     it a group of its own.\n\
-                     • ✕ on a window closes just that window; flick a card up to close the whole group.\n\
-                     • Drag the handle on the line between apps to resize them; tap it to arrange \
-                     on the screen itself (Flip, Full, Close).",
-                ));
-                l.set_wrap(true);
-                l.set_xalign(0.0);
-                l.add_css_class("row");
-                l.upcast()
-            }],
-        ),
-    ])
-}
-
-fn about(_: &Rc<Ctx>) -> gtk::Widget {
-    let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/<uid>".into());
-    let text = format!(
-        "RustTouch {}\n\nSettings file:\n{}\n\nLog:\n{}/rusttouch/rusttouch.log",
-        env!("CARGO_PKG_VERSION"),
-        config::path().display(),
-        runtime
-    );
-    let l = gtk::Label::new(Some(&text));
-    l.set_selectable(true);
-    l.set_wrap(true);
-    l.set_xalign(0.0);
-    l.add_css_class("row");
-    page(&[group("About", &[l.upcast()])])
+        });
+    }
 }
 
 // ------------------------------------------------------------ displays
@@ -1259,14 +1092,8 @@ fn dyn_choice(
     selected: Option<usize>,
     on_change: impl Fn(usize) + 'static,
 ) -> gtk::Widget {
-    let strs: Vec<&str> = labels.iter().map(String::as_str).collect();
-    let dd = gtk::DropDown::from_strings(&strs);
-    center_dropdown(&dd);
-    if let Some(i) = selected {
-        dd.set_selected(i as u32);
-    }
-    dd.connect_selected_notify(move |d| on_change(d.selected() as usize));
-    row(title, sub, &dd)
+    let (b, _) = picker(title, labels.to_vec(), selected, on_change);
+    row(title, sub, &b)
 }
 
 const SCALES: &[&str] = &["1", "1.25", "1.5", "1.75", "2", "2.5", "3"];
@@ -1503,14 +1330,12 @@ fn startup(ctx: &Rc<Ctx>) -> gtk::Widget {
         .collect();
     apps.sort_by_key(|a| a.display_name().to_lowercase());
     let names: Vec<String> = apps.iter().map(|a| a.display_name().to_string()).collect();
-    let labels: Vec<&str> = names.iter().map(String::as_str).collect();
-    let dd = gtk::DropDown::from_strings(&labels);
-    center_dropdown(&dd);
+    let (dd, chosen) = picker("Add an app", names, None, |_| {});
     dd.set_hexpand(true);
     let add_app = gtk::Button::with_label("Add");
-    let (c, dd2) = (ctx.clone(), dd.clone());
+    let c = ctx.clone();
     add_app.connect_clicked(move |_| {
-        if let Some(id) = apps.get(dd2.selected() as usize).and_then(|a| a.id()) {
+        if let Some(id) = apps.get(chosen.get()).and_then(|a| a.id()) {
             if let Err(e) = autostart::add_app(&id) {
                 eprintln!("rusttouch-settings: {e}");
             }

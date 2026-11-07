@@ -512,7 +512,7 @@ fn join_pending(nl: &List) {
     (nl.on_typing)(false);
     nl.pass.set_text("");
     run(nl, format!("Connecting to {}…", net.ssid), move || {
-        sys::wifi_connect(&net, Some(&pw))
+        sys::wifi_connect(&net, Some(pw))
     });
 }
 

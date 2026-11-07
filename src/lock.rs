@@ -2,11 +2,17 @@
 //! (letters, caps, numbers, symbols), so you can always type your real
 //! password by touch. A physical keyboard works too. Checked with PAM.
 //!
-//! It's an Overlay-layer surface that covers everything and grabs the
-//! keyboard. Note: if rusttouch crashes, the screen unlocks; the proper fix is
-//! ext-session-lock-v1 (see README).
+//! The screen is locked with the Wayland session-lock protocol
+//! (ext-session-lock-v1), so the compositor itself keeps it locked: if
+//! RustTouch crashes or is killed, the screen stays covered (rusttouch-shell
+//! starts RustTouch again, and it locks again by itself), and nothing else can
+//! draw over the lock screen. Only on a compositor without that protocol does
+//! it fall back to an Overlay-layer surface, which does NOT survive a crash -
+//! the log says so when that happens.
 
 use std::cell::Cell;
+#[cfg(feature = "layer")]
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk::prelude::*;
@@ -16,7 +22,15 @@ use crate::shell::Shell;
 use crate::{clock, pam};
 
 pub struct LockInner {
+    /// the plain (Overlay layer) lock surface: only used when the compositor
+    /// can't do a real session lock
     window: Option<gtk::ApplicationWindow>,
+    /// the real session lock (None: windowed mode, or not supported)
+    #[cfg(feature = "layer")]
+    session: Option<gtk4_session_lock::Instance>,
+    /// this lock's surfaces, one per monitor (made new for every lock)
+    #[cfg(feature = "layer")]
+    lock_windows: RefCell<Vec<gtk::ApplicationWindow>>,
     root: gtk::Box,
     stack: gtk::Stack,
     entry: gtk::PasswordEntry,
@@ -104,8 +118,27 @@ pub fn build(shell: &Shell, window: Option<gtk::ApplicationWindow>) -> Lock {
 
     root.append(&stack);
 
+    // a real session lock when the compositor offers one (sway, labwc, phoc...)
+    #[cfg(feature = "layer")]
+    let session = (window.is_some() && gtk4_session_lock::is_supported())
+        .then(gtk4_session_lock::Instance::new);
+    #[cfg(feature = "layer")]
+    eprintln!(
+        "rusttouch: lock screen: {}",
+        if session.is_some() {
+            "secure (session lock: stays locked even if RustTouch crashes)"
+        } else if window.is_some() {
+            "WARNING: plain overlay - this compositor has no session lock, a crash unlocks the screen"
+        } else {
+            "in the window"
+        }
+    );
     let lock = Rc::new(LockInner {
         window,
+        #[cfg(feature = "layer")]
+        session,
+        #[cfg(feature = "layer")]
+        lock_windows: RefCell::new(Vec::new()),
         root: root.clone(),
         stack: stack.clone(),
         entry: entry.clone(),
@@ -114,6 +147,34 @@ pub fn build(shell: &Shell, window: Option<gtk::ApplicationWindow>) -> Lock {
         busy: Cell::new(false),
         locked: Cell::new(false),
     });
+
+    #[cfg(feature = "layer")]
+    if let Some(s) = &lock.session {
+        // the compositor refused (another locker holds the screen?): the
+        // plain lock screen is better than none
+        let l = Rc::downgrade(&lock);
+        s.connect_failed(move |_| {
+            let Some(l) = l.upgrade() else { return };
+            eprintln!(
+                "rusttouch: the compositor refused the session lock - using the plain lock screen"
+            );
+            l.lock_windows.borrow_mut().clear();
+            if l.locked.get() {
+                l.show_plain();
+            }
+        });
+        // the lock ended without us unlocking it (the compositor did): if we
+        // still think it's locked, keep it covered
+        let l = Rc::downgrade(&lock);
+        s.connect_unlocked(move |_| {
+            let Some(l) = l.upgrade() else { return };
+            l.lock_windows.borrow_mut().clear();
+            if l.locked.get() {
+                eprintln!("rusttouch: the compositor ended the session lock - showing the plain lock screen");
+                l.show_plain();
+            }
+        });
+    }
 
     let l = lock.clone();
     pp.append(&keyboard(Rc::new(move |k: Key| key(&l, k))));
@@ -174,18 +235,102 @@ impl LockInner {
 
     pub fn show(&self) {
         self.locked.set(true);
+        set_marker(true);
         self.entry.set_text("");
         self.status.set_text("");
         self.stack.set_visible_child_name("clock");
+        #[cfg(feature = "layer")]
+        if let Some(s) = &self.session {
+            if self.lock_session(s) {
+                return;
+            }
+            eprintln!("rusttouch: couldn't start the session lock - using the plain lock screen");
+        }
+        self.show_plain();
+    }
+
+    /// The plain lock surface (Overlay layer), or the lock page in the window.
+    fn show_plain(&self) {
         match &self.window {
-            Some(w) => w.present(),
+            Some(w) => {
+                self.take_root();
+                w.set_child(Some(&self.root));
+                w.present();
+            }
             None => self.root.set_visible(true),
+        }
+    }
+
+    /// Lock with ext-session-lock-v1: a new lock surface on every monitor,
+    /// the lock screen itself on the main one.
+    #[cfg(feature = "layer")]
+    fn lock_session(&self, s: &gtk4_session_lock::Instance) -> bool {
+        if s.is_locked() {
+            return true;
+        }
+        let Some(app) = gio::Application::default().and_downcast::<gtk::Application>() else {
+            return false;
+        };
+        let Some(display) = gdk::Display::default() else {
+            return false;
+        };
+        if !s.lock() {
+            return false;
+        }
+        let monitors: Vec<gdk::Monitor> = {
+            let list = display.monitors();
+            (0..list.n_items())
+                .filter_map(|i| list.item(i).and_downcast::<gdk::Monitor>())
+                .collect()
+        };
+        let main = crate::shell::shell_monitor()
+            .and_then(|m| monitors.iter().position(|x| *x == m))
+            .unwrap_or(0);
+        self.take_root();
+        let mut wins = Vec::new();
+        for (i, m) in monitors.iter().enumerate() {
+            // (the library destroys these when the lock ends)
+            let w = gtk::ApplicationWindow::new(&app);
+            w.set_title(Some("rusttouch lock"));
+            if i == main {
+                w.set_child(Some(&self.root));
+            } else {
+                // other screens: just covered
+                let blank = gtk::Box::new(gtk::Orientation::Vertical, 0);
+                blank.add_css_class("lock");
+                w.set_child(Some(&blank));
+            }
+            s.assign_window_to_monitor(&w, m);
+            w.present();
+            wins.push(w);
+        }
+        *self.lock_windows.borrow_mut() = wins;
+        true
+    }
+
+    /// Take the lock page out of whatever window holds it.
+    fn take_root(&self) {
+        if let Some(p) = self.root.parent() {
+            match p.downcast_ref::<gtk::Window>() {
+                Some(w) => w.set_child(None::<&gtk::Widget>),
+                None => self.root.unparent(),
+            }
         }
     }
 
     fn hide(&self) {
         self.locked.set(false);
+        set_marker(false);
         self.entry.set_text("");
+        #[cfg(feature = "layer")]
+        if let Some(s) = &self.session {
+            if s.is_locked() {
+                // keep the lock page: the lock's windows are destroyed now
+                self.take_root();
+                s.unlock();
+                self.lock_windows.borrow_mut().clear();
+            }
+        }
         match &self.window {
             Some(w) => w.set_visible(false),
             None => self.root.set_visible(false),
@@ -200,20 +345,40 @@ impl LockInner {
 
 fn key(lock: &Lock, k: Key) {
     match k {
+        // typed straight into the field, so no extra copies of the
+        // password are left around in memory
         Key::Char(c) => {
-            let mut t = lock.entry.text().to_string();
-            t.push_str(&c);
-            lock.entry.set_text(&t);
+            let mut end = lock.entry.text().chars().count() as i32;
+            lock.entry.insert_text(&c, &mut end);
             lock.entry.set_position(-1);
         }
         Key::Back => {
-            let mut t = lock.entry.text().to_string();
-            t.pop();
-            lock.entry.set_text(&t);
+            let end = lock.entry.text().chars().count() as i32;
+            if end > 0 {
+                lock.entry.delete_text(end - 1, end);
+            }
             lock.entry.set_position(-1);
         }
         Key::Enter => submit(lock),
     }
+}
+
+/// A file that says "the screen is locked", in RustTouch's private runtime
+/// folder. If RustTouch crashes while locked, the compositor keeps the screen
+/// covered, rusttouch-shell starts RustTouch again, and this file tells it to
+/// lock again straight away (so you get the unlock screen back).
+fn set_marker(on: bool) {
+    let p = crate::sys::runtime_dir().join("locked");
+    if on {
+        let _ = std::fs::write(&p, b"");
+    } else {
+        let _ = std::fs::remove_file(&p);
+    }
+}
+
+/// Was the screen locked when RustTouch last stopped?
+pub fn was_locked() -> bool {
+    crate::sys::runtime_dir().join("locked").exists()
 }
 
 fn current_user() -> String {
@@ -228,6 +393,8 @@ fn submit(lock: &Lock) {
         return;
     }
     let pw = lock.entry.text().to_string();
+    // (the field's own copy goes; ours is wiped once it's been checked)
+    lock.entry.set_text("");
     if pw.is_empty() {
         lock.busy.set(false);
         return;
@@ -236,7 +403,7 @@ fn submit(lock: &Lock) {
     let user = current_user();
     let l = lock.clone();
     glib::spawn_future_local(async move {
-        let ok = gio::spawn_blocking(move || pam::authenticate(&user, &pw))
+        let ok = gio::spawn_blocking(move || pam::authenticate(&user, pw))
             .await
             .unwrap_or(false);
         l.busy.set(false);

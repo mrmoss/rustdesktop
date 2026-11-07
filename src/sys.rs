@@ -74,14 +74,85 @@ fn output(cmd: &str, args: &[&str]) -> Option<String> {
     Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// $XDG_RUNTIME_DIR/rusttouch (tmpfs) for previews, logs, keyboard config.
+extern "C" {
+    fn getuid() -> u32;
+}
+
+/// The user running RustTouch.
+pub fn my_uid() -> u32 {
+    unsafe { getuid() }
+}
+
+/// Is `d` a real folder (not a link) that's ours and that nobody else can
+/// open? A folder of ours that others can open is made private.
+fn is_private(d: &Path) -> bool {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let Ok(m) = fs::symlink_metadata(d) else {
+        return false;
+    };
+    if !m.is_dir() || m.uid() != my_uid() {
+        return false;
+    }
+    m.mode() & 0o077 == 0 || fs::set_permissions(d, fs::Permissions::from_mode(0o700)).is_ok()
+}
+
+/// Make the folder `d` (only we can open it), or check the one already there.
+fn private_dir(d: &Path) -> bool {
+    use std::os::unix::fs::DirBuilderExt;
+    let _ = fs::DirBuilder::new().mode(0o700).create(d); // (fails if it exists)
+    is_private(d)
+}
+
+fn pick_runtime_dir() -> PathBuf {
+    // the normal case: the login's private folder, $XDG_RUNTIME_DIR
+    // (/run/user/<uid>, which systemd makes for each user)
+    if let Some(x) = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from) {
+        if x.is_absolute() && is_private(&x) {
+            let d = x.join("rusttouch");
+            if private_dir(&d) {
+                return d;
+            }
+        } else {
+            eprintln!(
+                "rusttouch: XDG_RUNTIME_DIR ({}) isn't a private folder of yours - not using it",
+                x.display()
+            );
+        }
+    }
+    // no usable one: a private folder in your home (never a shared folder
+    // like /tmp, where another user could make it first)
+    if let Some(h) = std::env::var_os("HOME").map(PathBuf::from) {
+        let cache = h.join(".cache");
+        let _ = fs::create_dir_all(&cache);
+        let d = cache.join("rusttouch-run");
+        if private_dir(&d) {
+            return d;
+        }
+    }
+    // last resort: a brand-new private folder (made by us, so nobody else's)
+    for i in 0..1000 {
+        let d =
+            std::env::temp_dir().join(format!("rusttouch-{}-{}-{i}", my_uid(), std::process::id()));
+        use std::os::unix::fs::DirBuilderExt;
+        if fs::DirBuilder::new().mode(0o700).create(&d).is_ok() && is_private(&d) {
+            eprintln!(
+                "rusttouch: no private runtime folder - using {}",
+                d.display()
+            );
+            return d;
+        }
+    }
+    eprintln!("rusttouch: couldn't make a private runtime folder");
+    PathBuf::from("/nonexistent/rusttouch")
+}
+
+/// RustTouch's private runtime folder, for previews, the control pipe, the
+/// "locked" marker and the log: $XDG_RUNTIME_DIR/rusttouch, or
+/// ~/.cache/rusttouch-run without one. Always a real folder owned by you that
+/// nobody else can open (mode 0700); session/rusttouch-session picks the same.
 pub fn runtime_dir() -> PathBuf {
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
-    let d = base.join("rusttouch");
-    let _ = fs::create_dir_all(&d);
-    d
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(pick_runtime_dir).clone()
 }
 
 fn config_dir() -> Option<PathBuf> {
@@ -162,7 +233,8 @@ fn bt_connected() -> Option<String> {
     })
 }
 
-fn battery() -> Option<(u8, bool)> {
+/// (percent, charging) of the main battery. Cheap (a few small sysfs files).
+pub fn battery() -> Option<(u8, bool)> {
     let mut best: Option<(bool, PathBuf)> = None;
     let mut plugged = false;
     for entry in fs::read_dir("/sys/class/power_supply").ok()?.flatten() {
@@ -330,6 +402,8 @@ pub struct WifiNet {
     pub secure: bool,
     pub active: bool,
     pub known: bool,
+    /// what nmcli lists under SECURITY, e.g. "WPA2 WPA3"
+    pub security: String,
 }
 
 pub fn wifi_list(rescan: bool) -> Vec<WifiNet> {
@@ -367,6 +441,7 @@ pub fn wifi_list(rescan: bool) -> Vec<WifiNet> {
             secure: !f[3].is_empty() && f[3] != "--",
             active: f[0].trim() == "*",
             known: known.contains(&f[1]),
+            security: f[3].clone(),
         };
         match nets.iter_mut().find(|n| n.ssid == net.ssid) {
             Some(n) => {
@@ -381,15 +456,22 @@ pub fn wifi_list(rescan: bool) -> Vec<WifiNet> {
 }
 
 /// Connect (saved network, open network, or new one with a password).
-pub fn wifi_connect(net: &WifiNet, password: Option<&str>) -> Result<(), String> {
-    let (ok, _, err) = if net.known && password.is_none() {
+/// A password is handed to NetworkManager over D-Bus from inside RustTouch -
+/// never on a command line, where other programs could read it (/proc).
+pub fn wifi_connect(net: &WifiNet, password: Option<String>) -> Result<(), String> {
+    if let Some(pw) = password {
+        let r = crate::nm::connect_with_password(&net.ssid, &net.security, &pw);
+        crate::pam::wipe(pw);
+        return r;
+    }
+    let (ok, _, err) = if net.known {
         run_capture(45, "nmcli", &["connection", "up", "id", &net.ssid])
     } else {
-        let mut args = vec!["device", "wifi", "connect", net.ssid.as_str()];
-        if let Some(p) = password {
-            args.extend(["password", p]);
-        }
-        run_capture(45, "nmcli", &args)
+        run_capture(
+            45,
+            "nmcli",
+            &["device", "wifi", "connect", net.ssid.as_str()],
+        )
     };
     if ok {
         Ok(())

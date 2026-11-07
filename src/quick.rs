@@ -287,7 +287,9 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
     let power = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     power.set_homogeneous(true);
     let s = shell.clone();
-    power.append(&power_button(Glyph::Lock, "Lock", move || s.lock()));
+    power.append(&power_button(Glyph::Lock, "Lock", move || {
+        let _ = s.lock();
+    }));
     let s = shell.clone();
     power.append(&power_button(Glyph::Moon, "Sleep", move || {
         s.run_power_action("sleep")

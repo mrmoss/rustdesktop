@@ -2,6 +2,27 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.14
+
+Follow-up to the second security review.
+
+- No secure lock (a window manager without the session lock): "Lock",
+  "Sleep", the screen-off timer and the power button's screen-off no longer
+  turn the screen off or put the device to sleep after locking failed - the
+  screen stays on with the warning, for 6 seconds. (Before, the warning
+  flashed and the screen went dark, unlocked.) The warning now says "needs
+  a window manager with a session lock" (labwc and newer phoc have one too).
+- Button devices: back to access for the person at the device only
+  (`uaccess`). 0.6.13's read-only-for-everyone rule let other accounts, SSH
+  sessions and services read them.
+- Bluetooth: Low Energy keyboards (HID over GATT, 0x1812) count as input
+  devices too, so they aren't trusted automatically.
+- Wrong-password waits: never more than 10 minutes even if the clock went
+  backwards, not skipped if it jumps forward, and still counted when
+  ~/.local/state can't be written (kept in memory too).
+- Tray: an app's own icon folder is only used for apps running on the
+  host, not in a Flatpak or Snap sandbox (checked from the app's process).
+
 ## 0.6.13
 
 Second security review.

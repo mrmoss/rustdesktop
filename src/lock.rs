@@ -581,25 +581,58 @@ fn write_tries(fails: u32, until: u64) {
     }
 }
 
-/// Seconds left before the next try is allowed (0 = now).
+/// The longest wait (10 minutes).
+const MAX_WAIT: u64 = 600;
+
+thread_local! {
+    /// The same count kept in memory, with the wait timed by the system's
+    /// steady clock: it still counts if the file can't be written (full
+    /// disk, read-only home), and moving the clock forward doesn't skip it.
+    static MEM_FAILS: Cell<u32> = const { Cell::new(0) };
+    static MEM_UNTIL: Cell<Option<std::time::Instant>> = const { Cell::new(None) };
+}
+
+/// Seconds left before the next try is allowed (0 = now): the longer of the
+/// saved wait and the one in memory, never more than 10 minutes (if the clock
+/// went backwards, the saved one would otherwise last far too long).
 fn wait_left() -> u64 {
-    read_tries().1.saturating_sub(now_secs())
+    let saved = read_tries().1.saturating_sub(now_secs()).min(MAX_WAIT);
+    let mem = MEM_UNTIL
+        .with(|u| u.get())
+        .map(|t| {
+            t.saturating_duration_since(std::time::Instant::now())
+                .as_secs()
+        })
+        .unwrap_or(0);
+    saved.max(mem).min(MAX_WAIT)
 }
 
 /// After a wrong password: from the 5th one in a row, wait 30s, then twice
 /// as long after each further one (60s, 120s...), at most 10 minutes.
 fn note_wrong() {
-    let (fails, _) = read_tries();
-    let fails = fails.saturating_add(1);
-    let until = if fails >= FREE_TRIES {
-        let wait = 30u64
+    let fails = read_tries()
+        .0
+        .max(MEM_FAILS.with(|f| f.get()))
+        .saturating_add(1);
+    MEM_FAILS.with(|f| f.set(fails));
+    let wait = if fails >= FREE_TRIES {
+        30u64
             .saturating_mul(1u64 << (fails - FREE_TRIES).min(5))
-            .min(600);
-        now_secs() + wait
+            .min(MAX_WAIT)
     } else {
         0
     };
-    write_tries(fails, until);
+    let until =
+        (wait > 0).then(|| std::time::Instant::now() + std::time::Duration::from_secs(wait));
+    MEM_UNTIL.with(|u| u.set(until));
+    write_tries(fails, if wait > 0 { now_secs() + wait } else { 0 });
+}
+
+/// The right password: the count starts over.
+fn reset_tries() {
+    MEM_FAILS.with(|f| f.set(0));
+    MEM_UNTIL.with(|u| u.set(None));
+    write_tries(0, 0);
 }
 
 fn wait_text(secs: u64) -> String {
@@ -646,7 +679,7 @@ fn submit(lock: &Lock) {
             .unwrap_or(false);
         l.busy.set(false);
         if ok {
-            write_tries(0, 0);
+            reset_tries();
             l.status.set_text("");
             l.hide();
         } else {

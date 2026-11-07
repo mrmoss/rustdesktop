@@ -98,7 +98,7 @@ Download `rusttouch_<version>_amd64.deb` (or `arm64` for ARM) from the
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS   # with SHA256SUMS from the same release: must say "OK"
-sudo apt install ./rusttouch_0.6.13_amd64.deb
+sudo apt install ./rusttouch_0.6.14_amd64.deb
 ```
 
 Restart, and on the login screen pick **RustTouch** (click your name, then the gear or session
@@ -123,8 +123,8 @@ gh attestation verify rusttouch-*.tar.gz --repo mrmoss/rusttouch   # optional, n
 Then:
 
 ```sh
-tar xzf rusttouch-0.6.13-linux-x86_64.tar.gz
-cd rusttouch-0.6.13-linux-x86_64
+tar xzf rusttouch-0.6.14-linux-x86_64.tar.gz
+cd rusttouch-0.6.14-linux-x86_64
 ./deps.sh       # the helpers RustTouch uses (asks for your password)
 ./install.sh    # copies it into /usr/local and adds it to the login screen
 ```
@@ -265,7 +265,7 @@ Intel/AMD and ARM on Ubuntu 24.04 (they work on 26.04 too) and puts them in a **
 
 ```sh
 # 1. bump `version` in Cargo.toml (and CHANGELOG.md) and commit it
-git tag v0.6.13
+git tag v0.6.14
 git push --tags
 # 2. wait for the "release" workflow, look over the draft under Releases, then publish it
 ```
@@ -285,8 +285,10 @@ repositories, GitHub Actions is free.
   screen covered until RustTouch says your password was right. If RustTouch crashes or is
   killed while locked, the screen stays locked; the session starts RustTouch again (as often as
   it takes) and it shows the unlock screen again. The log says `lock screen: secure` at startup.
-  **Without that protocol RustTouch doesn't lock at all** and says "Can't lock here" - a cover a
-  crash could remove would only look safe. (`insecure_lock = on` in `rusttouch.conf` brings the
+  **Without that protocol RustTouch doesn't lock at all** and says so on screen ("Can't lock:
+  needs a window manager with a session lock") - a cover a crash could remove would only look
+  safe. The screen then also isn't turned off or put to sleep by "Lock", "Sleep" or the
+  screen-off timer, so it never looks locked when it isn't. (`insecure_lock = on` in `rusttouch.conf` brings the
   plain cover back, if you understand that.)
 - **Guessing is slowed down.** After 5 wrong passwords in a row, the lock screen makes you wait
   30 seconds, then twice as long after each further wrong one, up to 10 minutes. The count is
@@ -303,11 +305,11 @@ repositories, GitHub Actions is free.
   among Wi-Fi profiles, so a network named like your VPN can't touch the VPN profile.
 - **Apps in the tray** can't crash or fool the shell: their icons are size-checked, their menus
   shape-checked, file paths as icons are ignored, and an app's own icon folder is used for that
-  app only. Apps asking to keep the screen on are limited to a few requests each.
-- **Bluetooth** keyboards, mice and game pads aren't trusted automatically after pairing (a
-  trusted device can reconnect by itself).
-- **The power, volume and brightness buttons** are readable by RustTouch but not writable, so no
-  program can fake a button press.
+  app only - and only if the app isn't in a Flatpak or Snap sandbox. Apps asking to keep the screen on are limited to a few requests each.
+- **Bluetooth** keyboards, mice and game pads (classic or Low Energy) aren't trusted
+  automatically after pairing (a trusted device can reconnect by itself).
+- **The power, volume and brightness buttons** can only be opened by the person logged in at
+  the device (not other accounts, SSH sessions or services).
 - **RustTouch's runtime folder** (pictures of your apps, the log, its control pipe) is private:
   `$XDG_RUNTIME_DIR/rusttouch`, or `~/.cache/rusttouch-run` if there is no runtime folder.
   It's checked to be yours and closed to everyone else (mode 0700), and the control pipe can only

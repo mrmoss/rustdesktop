@@ -640,10 +640,13 @@ fn bt_is_input(mac: &str) -> bool {
         .find_map(|l| l.trim().strip_prefix("Icon:"))
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
-    // BlueZ also lists the HID service for input devices
+    // the device picks its own Icon, so the services it offers count too:
+    // classic Bluetooth HID (0x1124) and Bluetooth Low Energy HID (HOGP, 0x1812)
+    let info = info.to_ascii_lowercase();
     icon.is_empty()
         || icon.starts_with("input-")
         || info.contains("00001124-0000-1000-8000-00805f9b34fb")
+        || info.contains("00001812-0000-1000-8000-00805f9b34fb")
 }
 
 /// Give a device a nickname (BlueZ "Alias" - shows up everywhere, not just

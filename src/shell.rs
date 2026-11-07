@@ -650,7 +650,7 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
     // get the unlock screen back
     if shell.layered && crate::lock::was_locked() {
         eprintln!("rusttouch: the screen was locked when RustTouch stopped - locking again");
-        shell.lock();
+        let _ = shell.lock();
     }
     eprintln!("rusttouch: [{:.1}s] ready", uptime());
     // Background threads hand events over through `rx` and call wake(): the
@@ -698,7 +698,9 @@ fn handle_event(shell: &Shell, ev: Event) {
             *shell.orientation.borrow_mut() = Some(o);
         }
         Event::Sleep(true) => {
-            shell.lock();
+            // (the system is going to sleep anyway - e.g. the lid closed - so
+            // if it can't be locked, the warning is all there is)
+            let _ = shell.lock();
             // Let the system sleep only once the compositor confirms the
             // screen is covered (so the last unlocked picture can't flash up
             // when it wakes), or after 3s at most.
@@ -747,10 +749,7 @@ fn handle_event(shell: &Shell, ev: Event) {
                         s.run_power_action("sleep");
                         return;
                     }
-                    if s.cfg().on("lock_on_screen_off") {
-                        s.lock();
-                    }
-                    s.set_blank(true);
+                    s.lock_and_blank();
                 });
             }
             "unblank" => shell.set_blank(false),
@@ -1798,8 +1797,11 @@ impl ShellInner {
     pub fn run_power_action(&self, action: &str) {
         match action {
             "sleep" => {
-                // sleep once the lock screen is really up
-                self.lock();
+                // sleep once the lock screen is really up - and not at all if
+                // it can't be locked (it would wake up unlocked)
+                if !self.lock() {
+                    return;
+                }
                 let lock = self.lock.borrow().clone();
                 match lock {
                     Some(l) => l.when_locked(sys::suspend),
@@ -1807,15 +1809,11 @@ impl ShellInner {
                 }
             }
             "lock" => {
-                self.lock();
-                self.set_blank(true);
-            }
-            "screen_off" => {
-                if self.cfg().on("lock_on_screen_off") {
-                    self.lock();
+                if self.lock() {
+                    self.set_blank(true);
                 }
-                self.set_blank(true);
             }
+            "screen_off" => self.lock_and_blank(),
             "menu" => {
                 self.set_blank(false);
                 if !self.is_locked() {
@@ -2172,7 +2170,10 @@ impl ShellInner {
         sys::back(self.active_app_id(), self.keyboard == Osk::Squeekboard);
     }
 
-    pub fn lock(&self) {
+    /// Lock the screen. False: it can't be locked securely on this window
+    /// manager - nothing is locked, a warning shows, and the screen is kept
+    /// on so you see it. Callers must then not turn the screen off or sleep.
+    pub fn lock(&self) -> bool {
         self.hide_all();
         if self.osk_visible.get() {
             self.show_keyboard(false); // the lock screen has its own keyboard
@@ -2186,9 +2187,24 @@ impl ShellInner {
         if !ok {
             // no secure lock on this window manager: say so, don't pretend
             self.set_blank(false);
-            self.osd
-                .show_for(Glyph::Lock, 0.0, "Can't lock here: needs sway", 3000);
+            self.osd.show_for(
+                Glyph::Lock,
+                0.0,
+                "Can't lock: needs a window manager with a session lock",
+                6000,
+            );
         }
+        ok
+    }
+
+    /// Lock (if `lock_on_screen_off` asks for it), then turn the screen off -
+    /// unless locking was asked for and isn't possible: then the screen stays
+    /// on with the warning (dark but unlocked would look locked).
+    fn lock_and_blank(&self) {
+        if self.cfg().on("lock_on_screen_off") && !self.lock() {
+            return;
+        }
+        self.set_blank(true);
     }
 
     pub fn orientation(&self) -> Option<String> {
@@ -2567,7 +2583,9 @@ pub fn do_action(shell: &Shell, name: &str) {
                 shell.close_toplevel(&t);
             }
         }
-        "lock" => shell.lock(),
+        "lock" => {
+            let _ = shell.lock();
+        }
         // Settings > Power > "Try it"
         "battery-test" => {
             let pct = shell.status().battery.map(|b| b.0).unwrap_or(15);

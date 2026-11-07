@@ -50,6 +50,9 @@ struct Item {
     bus: String,
     /// unique bus name (":1.42") - signals come from this
     owner: RefCell<String>,
+    /// runs on the host, not in a sandbox (Flatpak, Snap): only then is its
+    /// own icon folder used (None = not checked yet)
+    on_host: Cell<Option<bool>>,
     path: String,
     button: gtk::Button,
     title: RefCell<String>,
@@ -375,6 +378,7 @@ fn add_item(
         id: id.clone(),
         bus,
         owner: RefCell::new(sender),
+        on_host: Cell::new(None),
         path,
         button: button.clone(),
         title: RefCell::new(String::new()),
@@ -498,6 +502,10 @@ fn refresh(tray: &Tray, item: &Rc<Item>, conn: &gio::DBusConnection) {
             )
             .await;
         let Ok(v) = r else { return };
+        if i.on_host.get().is_none() {
+            let owner = i.owner.borrow().clone();
+            i.on_host.set(Some(on_host(&c, &owner).await));
+        }
         let props = v.child_value(0);
         let get_s = |k: &str| -> Option<String> {
             lookup(&props, k).and_then(|x| x.str().map(String::from))
@@ -528,8 +536,13 @@ fn refresh(tray: &Tray, item: &Rc<Item>, conn: &gio::DBusConnection) {
         // Icon names only: a file path (any file on the computer - an app in
         // a sandbox could point at files it can't read itself) is ignored.
         let name = name.filter(|n| !n.contains('/') && n.len() <= 255);
-        // the app's own icon folder: looked up for this app only
+        // the app's own icon folder: looked up for this app only, and only
+        // for apps that aren't in a sandbox (a sandboxed app could point it
+        // at a folder it isn't allowed to read and have the shell show it)
         let own = name.as_deref().and_then(|n| {
+            if i.on_host.get() != Some(true) {
+                return None;
+            }
             let dir = get_s("IconThemePath").filter(|d| !d.is_empty())?;
             own_icon(&dir, n)
         });
@@ -575,6 +588,43 @@ fn own_icon(dir: &str, name: &str) -> Option<gdk::Paintable> {
         gtk::IconLookupFlags::empty(),
     );
     Some(icon.upcast())
+}
+
+/// Is the app with this bus name running on the host, not in a Flatpak or
+/// Snap sandbox? Anything that can't be checked counts as sandboxed.
+async fn on_host(conn: &gio::DBusConnection, bus_name: &str) -> bool {
+    let r = conn
+        .call_future(
+            Some("org.freedesktop.DBus"),
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+            "GetConnectionUnixProcessID",
+            Some(&(bus_name,).to_variant()),
+            glib::VariantTy::new("(u)").ok(),
+            gio::DBusCallFlags::NONE,
+            2000,
+        )
+        .await;
+    let Some((pid,)) = r.ok().and_then(|v| v.get::<(u32,)>()) else {
+        return false;
+    };
+    let proc = std::path::PathBuf::from(format!("/proc/{pid}"));
+    // Flatpak puts this file in every sandbox (and if the app's files can't
+    // be looked at, it isn't treated as on the host either)
+    match std::fs::metadata(proc.join("root/.flatpak-info")) {
+        Ok(_) => return false,
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return false,
+        Err(_) => {}
+    }
+    // Snap: the app runs under an AppArmor profile named snap.*
+    for f in ["attr/apparmor/current", "attr/current"] {
+        if let Ok(label) = std::fs::read_to_string(proc.join(f)) {
+            if label.trim_start().starts_with("snap.") {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// Biggest icon size an app may send as pixels (bigger ones are ignored).

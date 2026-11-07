@@ -54,6 +54,15 @@ pub struct NetList {
     busy: Cell<bool>,
     on_change: Rc<dyn Fn()>,
     on_typing: Rc<dyn Fn(bool)>,
+    /// the network or device being connected to (its row is highlighted)
+    connecting: RefCell<Option<String>>,
+    /// Wi-Fi / Bluetooth on-off switch in the header
+    power: gtk::Switch,
+    /// (setting the switch from the status, not by a tap)
+    power_sync: Cell<bool>,
+    /// the latest (Wi-Fi on, Bluetooth on) from the status
+    power_state: Cell<(Option<bool>, Option<bool>)>,
+    on_power: Rc<dyn Fn(Kind, bool)>,
 }
 
 pub type List = Rc<NetList>;
@@ -62,6 +71,7 @@ pub fn build(
     on_back: impl Fn() + 'static,
     on_change: Rc<dyn Fn()>,
     on_typing: Rc<dyn Fn(bool)>,
+    on_power: Rc<dyn Fn(Kind, bool)>,
 ) -> List {
     let root = gtk::Box::new(gtk::Orientation::Vertical, 8);
 
@@ -77,10 +87,15 @@ pub fn build(
     let scan = gtk::Button::with_label("Scan");
     scan.add_css_class("pill");
     scan.set_focusable(false);
+    // turn Wi-Fi / Bluetooth on or off right here
+    let power = gtk::Switch::new();
+    power.set_valign(gtk::Align::Center);
+    power.set_focusable(false);
     header.append(&back);
     header.append(&title);
     header.append(&spinner);
     header.append(&scan);
+    header.append(&power);
     root.append(&header);
 
     // Password for a new secured network: its own highlighted card, so it's
@@ -174,6 +189,31 @@ pub fn build(
         busy: Cell::new(false),
         on_change,
         on_typing,
+        connecting: RefCell::new(None),
+        power: power.clone(),
+        power_sync: Cell::new(false),
+        power_state: Cell::new((None, None)),
+        on_power,
+    });
+    let n = nl.clone();
+    power.connect_active_notify(move |p| {
+        if n.power_sync.get() {
+            return;
+        }
+        let kind = n.kind.get();
+        (n.on_power)(kind, p.is_active());
+        n.status
+            .set_text(if p.is_active() { "Turning on…" } else { "" });
+        if !p.is_active() {
+            clear(&n);
+        }
+        // look again once it's had a moment to come on
+        let n2 = n.clone();
+        let _ = glib::timeout_add_local_once(std::time::Duration::from_millis(2500), move || {
+            if n2.kind.get() == kind {
+                refresh(&n2, kind != Kind::Audio);
+            }
+        });
     });
 
     back.connect_clicked(move |_| on_back());
@@ -186,7 +226,9 @@ pub fn build(
     let n = nl.clone();
     cancel.connect_clicked(move |_| {
         n.pending.borrow_mut().take();
+        n.connecting.borrow_mut().take();
         show_join(&n, None);
+        render(&n);
     });
     let n = nl.clone();
     pass.connect_activate(move |_| join_pending(&n));
@@ -246,8 +288,30 @@ fn save_rename(nl: &List) {
 }
 
 /// Show the page for `kind` and load the list.
+/// Wi-Fi / Bluetooth on or off, from the status (keeps the header switch right).
+pub fn set_power(nl: &List, wifi: Option<bool>, bt: Option<bool>) {
+    nl.power_state.set((wifi, bt));
+    sync_power(nl);
+}
+
+fn sync_power(nl: &List) {
+    let (wifi, bt) = nl.power_state.get();
+    let state = match nl.kind.get() {
+        Kind::Wifi => wifi,
+        Kind::Bluetooth => bt,
+        Kind::Audio => None,
+    };
+    nl.power
+        .set_visible(nl.kind.get() != Kind::Audio && state.is_some());
+    nl.power_sync.set(true);
+    nl.power.set_active(state == Some(true));
+    nl.power_sync.set(false);
+}
+
 pub fn open(nl: &List, kind: Kind) {
     nl.kind.set(kind);
+    nl.connecting.borrow_mut().take();
+    sync_power(nl);
     nl.title.set_text(match kind {
         Kind::Wifi => "Wi-Fi",
         Kind::Bluetooth => "Bluetooth",
@@ -455,7 +519,9 @@ fn render(nl: &List) {
                     31..=60 => 2,
                     _ => 3,
                 };
+                let connecting = nl.connecting.borrow().as_deref() == Some(net.ssid.as_str());
                 let sub = match (net.active, net.known, net.secure) {
+                    _ if connecting && !net.active => "Connecting…".to_string(),
                     (true, _, _) => "Connected · tap to disconnect".to_string(),
                     (false, true, _) => "Saved".to_string(),
                     (false, false, true) => "Secured".to_string(),
@@ -468,6 +534,7 @@ fn render(nl: &List) {
                     None
                 };
                 let r = row(nl, Glyph::Wifi(bars), &net.ssid, &sub, forget, None);
+                mark(&r, net.active, connecting);
                 nl.list.append(&r);
             }
         }
@@ -478,7 +545,9 @@ fn render(nl: &List) {
                     .set_text("No devices found - put the device in pairing mode and tap Scan");
             }
             for d in devs {
+                let connecting = nl.connecting.borrow().as_deref() == Some(d.mac.as_str());
                 let sub = match (d.connected, d.paired) {
+                    _ if connecting && !d.connected => "Connecting…",
                     (true, _) => "Connected · tap to disconnect",
                     (false, true) => "Paired · tap to connect",
                     (false, false) => "Tap to pair",
@@ -491,10 +560,27 @@ fn render(nl: &List) {
                 };
                 let rename = d.paired.then(|| d.clone());
                 let r = row(nl, Glyph::Bluetooth, &d.name, sub, forget, rename);
+                mark(&r, d.connected, connecting);
                 nl.list.append(&r);
             }
         }
     }
+}
+
+/// Highlight the row you're connected to, or connecting to - and only those
+/// (touching a row while scrolling doesn't).
+fn mark(r: &gtk::ListBoxRow, connected: bool, connecting: bool) {
+    if connected {
+        r.add_css_class("current");
+    } else if connecting {
+        r.add_css_class("connecting");
+    }
+}
+
+/// Remember what's being connected to and show it highlighted.
+fn start_connecting(nl: &List, id: &str) {
+    *nl.connecting.borrow_mut() = Some(id.to_string());
+    render(nl);
 }
 
 fn activate(nl: &List, i: usize) {
@@ -516,9 +602,11 @@ fn activate(nl: &List, i: usize) {
                     },
                 );
             } else if net.secure && !net.known {
+                start_connecting(nl, &net.ssid);
                 show_join(nl, Some(&net));
                 *nl.pending.borrow_mut() = Some(net);
             } else {
+                start_connecting(nl, &net.ssid);
                 run(nl, format!("Connecting to {}…", net.ssid), move || {
                     sys::wifi_connect(&net, None)
                 });
@@ -553,6 +641,7 @@ fn activate(nl: &List, i: usize) {
             let msg = if dev.connected {
                 format!("Disconnecting {}…", dev.name)
             } else {
+                start_connecting(nl, &dev.mac);
                 format!("Connecting {}…", dev.name)
             };
             run(nl, msg, move || sys::bt_activate(&dev));
@@ -580,6 +669,7 @@ fn run(nl: &List, msg: String, f: impl FnOnce() -> Result<(), String> + Send + '
             .await
             .unwrap_or_else(|_| Err("failed".into()));
         set_busy(&n, false, "");
+        n.connecting.borrow_mut().take();
         match res {
             Ok(()) => n.status.set_text("Done"),
             Err(e) => n.status.set_text(&format!("Didn't work: {e}")),

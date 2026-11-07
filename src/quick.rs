@@ -327,6 +327,24 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
         },
         Rc::new(move || shell::refresh_soon(&s)),
         Rc::new(move |on: bool| s_typing.sheet_keyboard(shell::Overlay::Quick, on)),
+        // the list's own on/off switch: same as tapping the tile
+        {
+            let s = shell.clone();
+            Rc::new(move |kind: Kind, on: bool| {
+                match kind {
+                    Kind::Wifi => {
+                        sys::set_wifi(on);
+                        s.save("wifi", if on { "on" } else { "off" });
+                    }
+                    Kind::Bluetooth => {
+                        sys::set_bluetooth(on);
+                        s.save("bluetooth", if on { "on" } else { "off" });
+                    }
+                    Kind::Audio => {}
+                }
+                shell::refresh_soon(&s);
+            })
+        },
     );
     pages.add_named(&nets.root, Some("list"));
 
@@ -637,6 +655,27 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
                 lp.reset();
             }));
         }
+        // A new touch always starts a fresh hold: whatever was left of an
+        // earlier one (a touch GTK lost track of) is dropped first - so the
+        // long press always works, without closing the pull-down.
+        let fresh = gtk::EventControllerLegacy::new();
+        fresh.set_propagation_phase(gtk::PropagationPhase::Capture);
+        {
+            let (f, lp, h) = (finish.clone(), lp.clone(), held.clone());
+            fresh.connect_event(move |_, ev| {
+                use gtk::gdk::EventType as T;
+                if matches!(ev.event_type(), T::ButtonPress | T::TouchBegin) {
+                    if h.get() {
+                        f(false);
+                    }
+                    if lp.is_active() {
+                        lp.reset();
+                    }
+                }
+                glib::Propagation::Proceed
+            });
+        }
+        button.add_controller(fresh);
         button.add_controller(lp);
         button.add_controller(track);
     }
@@ -663,7 +702,9 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
         let (wb, wsub) = (wifi.button.clone(), wifi.sub.clone());
         let (bb, bsub) = (bt.button.clone(), bt.sub.clone());
         let (wok, bok) = (wifi_ok.clone(), bt_ok.clone());
+        let nl = nets.clone();
         shell.on_status(move |st| {
+            netlist::set_power(&nl, st.wifi_on, st.bt_on);
             g.set(true);
 
             wb.set_active(st.wifi_on == Some(true));

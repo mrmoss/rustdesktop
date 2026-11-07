@@ -91,7 +91,9 @@ button.qs-tile:checked:active { background-color: @rd_accent; }
 .qs-slider scale trough { min-height: 12px; border-radius: 6px; }
 .qs-slider scale highlight { background: @rd_accent; border-radius: 6px; }
 .qs-slider scale slider { min-width: 26px; min-height: 26px; }
-.power-btn { min-height: 56px; }
+/* lock / sleep / restart...: icon and label sit a little lower (they
+   looked high in the button) */
+button.qs-tile.power-btn { min-height: 56px; padding: 24px 12px 4px 12px; }
 
 /* ---------- recents ---------- */
 .recents { background: alpha(@rd_panel_bg, 0.94); color: @rd_fg; }
@@ -157,6 +159,18 @@ button.qs-tile:checked:active { background-color: @rd_accent; }
 button.join-btn { background: @rd_accent; color: @rd_accent_fg; font-weight: 700; }
 .qs-list { background: none; }
 .qs-list row { border-radius: 14px; }
+/* no highlight just for touching a row (scrolling started on it) - only
+   the network or device you're connected to, or connecting to */
+.qs-list > row, .qs-list > row:hover, .qs-list > row:active, .qs-list > row:selected,
+.qs-list > row:focus, .qs-list > row:focus-visible {
+  background: none; box-shadow: none; outline: none;
+}
+.qs-list > row.current, .qs-list > row.current:hover, .qs-list > row.current:active {
+  background: alpha(@rd_accent, 0.22);
+}
+.qs-list > row.connecting, .qs-list > row.connecting:hover, .qs-list > row.connecting:active {
+  background: alpha(@rd_accent, 0.12); box-shadow: inset 0 0 0 2px @rd_accent;
+}
 .qs-list-row { padding: 10px 8px; }
 
 /* ---------- drawer: long-press actions ---------- */

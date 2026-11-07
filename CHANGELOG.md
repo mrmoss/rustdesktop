@@ -2,6 +2,19 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.19
+
+- Pull-down: holding Wi-Fi or Bluetooth always works now, without closing
+  and reopening the pull-down - every new touch on a tile first drops
+  whatever was left of an earlier hold.
+- Wi-Fi / Bluetooth lists: an on/off switch in the header, so you can turn
+  them on (or off) right there.
+- Wi-Fi / Bluetooth lists: only the network or device you're connected to
+  is highlighted (filled), and the one you're connecting to (outlined,
+  "Connecting…"). Touching a row to scroll the list no longer highlights it.
+- Pull-down: the icons and labels on Lock / Sleep / Restart / Power off /
+  Log out sit about 10px lower.
+
 ## 0.6.18
 
 - Pull-down: fixed holding Wi-Fi or Bluetooth stopping working (until you

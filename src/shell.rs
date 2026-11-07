@@ -108,6 +108,8 @@ pub struct ShellInner {
     pk_gen: Cell<u32>,
     pk_pending: Cell<bool>,
     held_key: Cell<Option<u16>>,
+    /// opens the pull-down's Wi-Fi / Bluetooth list (set by quick.rs)
+    list_opener: RefCell<Option<Rc<dyn Fn(crate::netlist::Kind)>>>,
     key_gen: Cell<u32>,
     /// volume as we last set it (fresher than the 5s status poll)
     volume_now: Cell<Option<f64>>,
@@ -329,6 +331,7 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         pk_gen: Cell::new(0),
         pk_pending: Cell::new(false),
         held_key: Cell::new(None),
+        list_opener: RefCell::new(None),
         key_gen: Cell::new(0),
         volume_now: Cell::new(None),
         volume_listeners: RefCell::new(Vec::new()),
@@ -2238,6 +2241,19 @@ impl ShellInner {
         self.set_blank(true);
     }
 
+    pub fn set_list_opener(&self, f: Rc<dyn Fn(crate::netlist::Kind)>) {
+        *self.list_opener.borrow_mut() = Some(f);
+    }
+
+    /// Pull down the pull-down with its Wi-Fi or Bluetooth list showing.
+    pub fn open_list(&self, kind: crate::netlist::Kind) {
+        self.show(Overlay::Quick);
+        let f = self.list_opener.borrow().clone();
+        if let Some(f) = f {
+            f(kind);
+        }
+    }
+
     pub fn orientation(&self) -> Option<String> {
         self.orientation.borrow().clone()
     }
@@ -2617,6 +2633,9 @@ pub fn do_action(shell: &Shell, name: &str) {
         "lock" => {
             let _ = shell.lock();
         }
+        // Settings > Network: the same lists as holding the tiles
+        "wifi-list" => shell.open_list(crate::netlist::Kind::Wifi),
+        "bluetooth-list" => shell.open_list(crate::netlist::Kind::Bluetooth),
         // Settings > Power > "Try it"
         "battery-test" => {
             let pct = shell.status().battery.map(|b| b.0).unwrap_or(15);

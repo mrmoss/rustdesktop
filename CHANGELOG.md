@@ -2,6 +2,20 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.18
+
+- Pull-down: fixed holding Wi-Fi or Bluetooth stopping working (until you
+  logged in again). When Wi-Fi was switched off, a tile could briefly stop
+  taking touches while a finger was on it, and GTK never let go of that
+  touch. The tiles now always take touches (if Wi-Fi/Bluetooth is
+  unavailable, tapping just does nothing), and any hold still going on when
+  the pull-down closes is dropped.
+- Settings > Network: Wi-Fi > Networks and Bluetooth > Devices open the
+  pull-down's own lists - the same ones holding the tiles opens - so
+  networks and devices are handled in one place. "Advanced network
+  settings" (nm-connection-editor) is still there for VPNs and the like.
+  `rusttouch --do wifi-list` / `bluetooth-list` open them too.
+
 ## 0.6.17
 
 - Wi-Fi: picking a network that needs a password now opens its own card,

@@ -224,10 +224,21 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
         (&wifi.button, "wifi", sys::set_wifi),
         (&bt.button, "bluetooth", sys::set_bluetooth),
     ];
-    for (button, key, action) in toggles {
+    // (Wi-Fi / Bluetooth unavailable: the tiles stay touchable - a tile that
+    // stopped taking touches under a finger left GTK holding that touch, and
+    // the long press never worked again - but tapping does nothing)
+    let wifi_ok = Rc::new(Cell::new(true));
+    let bt_ok = Rc::new(Cell::new(true));
+    for ((button, key, action), ok) in toggles.into_iter().zip([wifi_ok.clone(), bt_ok.clone()]) {
         let (s, g) = (shell.clone(), syncing.clone());
         button.connect_toggled(move |b| {
             if g.get() {
+                return;
+            }
+            if !ok.get() {
+                g.set(true);
+                b.set_active(false);
+                g.set(false);
                 return;
             }
             action(b.is_active());
@@ -449,6 +460,29 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
     }
     panel.append(&pages);
 
+    // Open the Wi-Fi or Bluetooth list (also from Settings, through
+    // `rusttouch --do wifi-list`): the same page the long press opens.
+    {
+        let (p, n) = (pages.clone(), nets.clone());
+        shell.set_list_opener(Rc::new(move |kind| {
+            p.set_visible_child_name("list");
+            netlist::open(&n, kind);
+        }));
+    }
+    // a hold still going on when the pull-down closes is dropped (so a touch
+    // GTK lost track of can't leave a tile stuck)
+    let holds: Rc<std::cell::RefCell<Vec<Rc<dyn Fn()>>>> = Default::default();
+    {
+        let holds = holds.clone();
+        shell.sheet(shell::Overlay::Quick).on_progress(move |p| {
+            if p <= 0.001 {
+                for r in holds.borrow().iter() {
+                    r();
+                }
+            }
+        });
+    }
+
     // long-press Wi-Fi / Bluetooth -> network / device list
     for (tile, kind) in [(&wifi, Kind::Wifi), (&bt, Kind::Bluetooth)] {
         let button = &tile.button;
@@ -596,6 +630,13 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
                 let _ = glib::idle_add_local_once(move || f(ins.get()));
             }
         });
+        {
+            let (f, lp) = (finish.clone(), lp.clone());
+            holds.borrow_mut().push(Rc::new(move || {
+                f(false);
+                lp.reset();
+            }));
+        }
         button.add_controller(lp);
         button.add_controller(track);
     }
@@ -621,11 +662,12 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
         let g = syncing.clone();
         let (wb, wsub) = (wifi.button.clone(), wifi.sub.clone());
         let (bb, bsub) = (bt.button.clone(), bt.sub.clone());
+        let (wok, bok) = (wifi_ok.clone(), bt_ok.clone());
         shell.on_status(move |st| {
             g.set(true);
 
             wb.set_active(st.wifi_on == Some(true));
-            wb.set_sensitive(st.wifi_on.is_some());
+            wok.set(st.wifi_on.is_some());
             wsub.set_text(match (st.wifi_on, &st.ssid) {
                 (Some(true), Some(n)) => n.as_str(),
                 (Some(true), None) => "On",
@@ -634,7 +676,7 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
             });
 
             bb.set_active(st.bt_on == Some(true));
-            bb.set_sensitive(st.bt_on.is_some());
+            bok.set(st.bt_on.is_some());
             bsub.set_text(match (st.bt_on, &st.bt_connected) {
                 (Some(true), Some(name)) => name.as_str(),
                 (Some(true), None) => "On",

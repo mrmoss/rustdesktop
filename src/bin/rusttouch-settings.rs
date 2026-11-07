@@ -1346,6 +1346,18 @@ fn keyboard(_: &Rc<Ctx>) -> gtk::Widget {
     ])
 }
 
+/// A button that opens the pull-down's own Wi-Fi or Bluetooth list (the one
+/// holding the tile opens), so there's one place for networks and devices.
+fn list_button(action: &'static str) -> gtk::Button {
+    let b = gtk::Button::with_label("Open");
+    b.connect_clicked(move |_| {
+        let _ = std::process::Command::new("rusttouch")
+            .args(["--do", action])
+            .spawn();
+    });
+    b
+}
+
 fn network(_: &Rc<Ctx>) -> gtk::Widget {
     let cfg = Config::load();
     let more = gtk::Button::with_label("Open");
@@ -1364,14 +1376,38 @@ fn network(_: &Rc<Ctx>) -> gtk::Widget {
             }
         }
     });
-    page(&[group(
-        "Network",
-        &[
-            switch_row(&cfg, "wifi", "Wi-Fi", None),
-            switch_row(&cfg, "bluetooth", "Bluetooth", None),
-            row("Wi-Fi networks & passwords", None, &more),
-        ],
-    )])
+    page(&[
+        group(
+            "Wi-Fi",
+            &[
+                switch_row(&cfg, "wifi", "Wi-Fi", None),
+                row(
+                    "Networks",
+                    Some("Join, disconnect or forget networks - the same list as holding Wi-Fi in the pull-down"),
+                    &list_button("wifi-list"),
+                ),
+            ],
+        ),
+        group(
+            "Bluetooth",
+            &[
+                switch_row(&cfg, "bluetooth", "Bluetooth", None),
+                row(
+                    "Devices",
+                    Some("Pair, connect or rename devices - the same list as holding Bluetooth in the pull-down"),
+                    &list_button("bluetooth-list"),
+                ),
+            ],
+        ),
+        group(
+            "More",
+            &[row(
+                "Advanced network settings",
+                Some("VPNs, fixed addresses and the like (needs nm-connection-editor)"),
+                &more,
+            )],
+        ),
+    ])
 }
 
 fn windows(_: &Rc<Ctx>) -> gtk::Widget {

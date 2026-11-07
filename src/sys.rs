@@ -276,17 +276,23 @@ pub fn battery() -> Option<(u8, bool)> {
     for entry in fs::read_dir("/sys/class/power_supply").ok()?.flatten() {
         let p = entry.path();
         let ty = read_trim(&p.join("type")).unwrap_or_default();
-        let scope = read_trim(&p.join("scope")).unwrap_or_default();
-        if scope == "Device" {
-            continue;
-        }
-        if matches!(ty.as_str(), "Mains" | "USB" | "USB_C" | "USB_PD") {
-            if read_trim(&p.join("online")).as_deref() == Some("1") {
+        // A charger counts whatever it calls itself (Mains, USB, USB_PD...):
+        // any power supply that isn't a battery and says it's online.
+        if ty != "Battery" {
+            if read_trim(&p.join("online"))
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(0)
+                > 0
+            {
                 plugged = true;
             }
             continue;
         }
-        if ty == "Battery" {
+        // pen/mouse/keyboard batteries (scope=Device) aren't the computer's
+        if read_trim(&p.join("scope")).as_deref() == Some("Device") {
+            continue;
+        }
+        {
             let is_bat = entry.file_name().to_string_lossy().starts_with("BAT");
             if best.as_ref().map(|(b, _)| !*b && is_bat).unwrap_or(true) {
                 best = Some((is_bat, p));
@@ -303,6 +309,7 @@ pub fn battery() -> Option<(u8, bool)> {
         ratio("energy_now", "energy_full").or_else(|| ratio("charge_now", "charge_full"))
     })?;
     let status = read_trim(&p.join("status")).unwrap_or_default();
+    // ("Not charging" while plugged in: held at a charge limit - still on power)
     let charging = status == "Charging" || status == "Full" || plugged;
     Some((pct.round().clamp(0.0, 100.0) as u8, charging))
 }

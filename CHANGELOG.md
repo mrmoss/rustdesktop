@@ -2,6 +2,17 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.16
+
+- Battery: any power supply that isn't a battery and says it's online now
+  counts as "on power" (not only ones calling themselves Mains/USB), and a
+  charger is never skipped for its scope (only pen/mouse batteries are).
+  Battery changes are written to the log ("battery 87%, on power").
+- Home screen: the grid is redrawn for the real screen size as soon as it's
+  known (and when screens change). It was laid out at startup before the
+  screen size was known, so the first app dragged onto it suddenly changed
+  the grid.
+
 ## 0.6.15
 
 - Fixed the build: saved Wi-Fi settings are read with VariantDict

@@ -617,6 +617,12 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
             battery_warning(&s, was, pct);
         }
         if before != now {
+            if let Some((pct, charging)) = now {
+                eprintln!(
+                    "rusttouch: battery {pct}%{}",
+                    if charging { ", on power" } else { "" }
+                );
+            }
             s.status.borrow_mut().battery = now;
             let st = s.status.borrow().clone();
             for f in s.status_listeners.borrow().iter() {

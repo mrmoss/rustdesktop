@@ -10,7 +10,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk::prelude::*;
-use gtk::{gio, graphene};
+use gtk::{gio, glib, graphene};
 
 use crate::apps;
 use crate::config::Config;
@@ -34,6 +34,8 @@ pub struct HomeInner {
     dragging: RefCell<Option<Dragged>>,
     floating: RefCell<Option<gtk::Widget>>,
     hover: Cell<Option<usize>>,
+    /// the grid's columns and rows when it was last drawn
+    shape: Cell<(usize, usize)>,
 }
 
 pub type Home = Rc<HomeInner>;
@@ -188,7 +190,8 @@ pub fn render(h: &Home) {
         h.grid.remove(&c);
     }
     let v = layout(&h.shell.cfg());
-    let (cols, _) = dims();
+    let (cols, rows) = dims();
+    h.shape.set((cols, rows));
     let mut cells = Vec::with_capacity(v.len());
     for (i, id) in v.iter().enumerate() {
         let cell = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -208,6 +211,16 @@ pub fn render(h: &Home) {
     }
     *h.cells.borrow_mut() = cells;
     h.hint.set_visible(v.iter().all(|x| x.is_empty()));
+}
+
+/// Redraw the grid if the screen size it was made for has changed. The first
+/// grid is made at startup, when the screen's size may not be known yet
+/// (then it's laid out for a phone-sized screen, and the first drop - which
+/// redraws it - suddenly changed the grid). Checked again before every drag.
+pub fn ensure_shape(h: &Home) {
+    if h.shape.get() != dims() {
+        render(h);
+    }
 }
 
 fn bounds_contain(w: &impl IsA<gtk::Widget>, target: &gtk::Overlay, x: f64, y: f64) -> bool {
@@ -347,6 +360,7 @@ fn drop_at(h: &Home, x: f64, y: f64) {
 
 pub fn external_start(h: &Home, id: &str, x: f64, y: f64) {
     stop_float(h);
+    ensure_shape(h);
     *h.dragging.borrow_mut() = Some(Dragged::New(id.to_string()));
     start_float(h, id, x, y);
     move_float(h, x, y);
@@ -420,6 +434,7 @@ pub fn build(shell: &Shell) -> Home {
         dragging: RefCell::new(None),
         floating: RefCell::new(None),
         hover: Cell::new(None),
+        shape: Cell::new((0, 0)),
     });
 
     // long-press an icon -> drag it around
@@ -428,6 +443,7 @@ pub fn build(shell: &Shell) -> Home {
         &root,
         LongDrag {
             start: Box::new(move |x: f64, y: f64| {
+                ensure_shape(&h1);
                 let Some(i) = cell_at(&h1, x, y) else {
                     return false;
                 };
@@ -474,5 +490,27 @@ pub fn build(shell: &Shell) -> Home {
 
     crate::bars::dismiss_on_touch(shell, &root);
     render(&h);
+    // the screen's real size arrives a moment after startup, and changes
+    // when screens are plugged in: redraw the grid for it
+    for ms in [500, 2000] {
+        let h2 = h.clone();
+        let _ = glib::timeout_add_local_once(std::time::Duration::from_millis(ms), move || {
+            ensure_shape(&h2)
+        });
+    }
+    if let Some(d) = gtk::gdk::Display::default() {
+        let h2 = h.clone();
+        d.monitors().connect_items_changed(move |_, _, _, _| {
+            let h3 = h2.clone();
+            let _ =
+                glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
+                    ensure_shape(&h3)
+                });
+        });
+    }
+    if let Some(m) = shell::shell_monitor() {
+        let h2 = h.clone();
+        m.connect_geometry_notify(move |_| ensure_shape(&h2));
+    }
     h
 }

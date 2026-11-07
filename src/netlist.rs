@@ -38,6 +38,10 @@ pub struct NetList {
     spinner: gtk::Spinner,
     pass_row: gtk::Revealer,
     pass: gtk::PasswordEntry,
+    /// "Join <network>" at the top of the password card
+    pass_title: gtk::Label,
+    /// the list, dimmed while the password card is up
+    scroll: gtk::ScrolledWindow,
     kind: Cell<Kind>,
     wifi: RefCell<Vec<WifiNet>>,
     bt: RefCell<Vec<BtDevice>>,
@@ -79,18 +83,42 @@ pub fn build(
     header.append(&scan);
     root.append(&header);
 
-    // password prompt for new secured networks
+    // Password for a new secured network: its own highlighted card, so it's
+    // clear you've picked a network and are now joining it (the list below
+    // dims meanwhile).
     let pass_row = gtk::Revealer::new();
-    let pbox = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    pass_row.set_transition_type(gtk::RevealerTransitionType::SlideDown);
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    card.add_css_class("join-card");
+    let pass_title = gtk::Label::new(None);
+    pass_title.add_css_class("join-title");
+    pass_title.set_halign(gtk::Align::Start);
+    pass_title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    let hint = gtk::Label::new(Some("Type the Wi-Fi password"));
+    hint.add_css_class("qs-sub");
+    hint.set_halign(gtk::Align::Start);
     let pass = gtk::PasswordEntry::new();
     pass.set_show_peek_icon(true);
     pass.set_hexpand(true);
     pass.add_css_class("lock-entry");
+    pass.add_css_class("join-entry");
+    pass.set_property("placeholder-text", "Password");
+    let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    buttons.set_halign(gtk::Align::End);
+    let cancel = gtk::Button::with_label("Cancel");
+    cancel.add_css_class("pill");
+    cancel.set_focusable(false);
     let join = gtk::Button::with_label("Connect");
     join.add_css_class("pill");
-    pbox.append(&pass);
-    pbox.append(&join);
-    pass_row.set_child(Some(&pbox));
+    join.add_css_class("join-btn");
+    join.set_focusable(false);
+    buttons.append(&cancel);
+    buttons.append(&join);
+    card.append(&pass_title);
+    card.append(&hint);
+    card.append(&pass);
+    card.append(&buttons);
+    pass_row.set_child(Some(&card));
     root.append(&pass_row);
 
     // nickname prompt for Bluetooth devices
@@ -132,6 +160,8 @@ pub fn build(
         spinner,
         pass_row,
         pass: pass.clone(),
+        pass_title,
+        scroll: scroll.clone(),
         kind: Cell::new(Kind::Wifi),
         wifi: RefCell::new(Vec::new()),
         bt: RefCell::new(Vec::new()),
@@ -154,6 +184,11 @@ pub fn build(
     let n = nl.clone();
     join.connect_clicked(move |_| join_pending(&n));
     let n = nl.clone();
+    cancel.connect_clicked(move |_| {
+        n.pending.borrow_mut().take();
+        show_join(&n, None);
+    });
+    let n = nl.clone();
     pass.connect_activate(move |_| join_pending(&n));
     let n = nl.clone();
     rsave.connect_clicked(move |_| save_rename(&n));
@@ -162,8 +197,34 @@ pub fn build(
     nl
 }
 
+/// Show the password card for `net` (or put it away: None). The list dims
+/// while it shows.
+fn show_join(nl: &List, net: Option<&WifiNet>) {
+    match net {
+        Some(n) => {
+            nl.pass_title.set_text(&format!("Join “{}”", n.ssid));
+            nl.pass.set_text("");
+            nl.status.set_text("");
+            nl.pass_row.set_reveal_child(true);
+            nl.scroll.set_sensitive(false);
+            nl.scroll.set_opacity(0.35);
+            (nl.on_typing)(true);
+            nl.pass.grab_focus();
+        }
+        None => {
+            if nl.pass_row.reveals_child() {
+                (nl.on_typing)(false);
+            }
+            nl.pass_row.set_reveal_child(false);
+            nl.pass.set_text("");
+            nl.scroll.set_sensitive(true);
+            nl.scroll.set_opacity(1.0);
+        }
+    }
+}
+
 fn ask_rename(nl: &List, dev: BtDevice) {
-    nl.pass_row.set_reveal_child(false);
+    show_join(nl, None);
     nl.rename.set_text(&dev.name);
     nl.status.set_text(&format!("Nickname for {}", dev.mac));
     *nl.renaming.borrow_mut() = Some(dev);
@@ -198,10 +259,10 @@ pub fn open(nl: &List, kind: Kind) {
         "Scan"
     });
     nl.status.set_text("");
-    nl.pass_row.set_reveal_child(false);
+    show_join(nl, None);
+    nl.pending.borrow_mut().take();
     nl.rename_row.set_reveal_child(false);
     (nl.on_typing)(false);
-    nl.pass.set_text("");
     clear(nl);
     refresh(nl, kind == Kind::Bluetooth); // bluetooth: also look for new devices
 }
@@ -455,12 +516,8 @@ fn activate(nl: &List, i: usize) {
                     },
                 );
             } else if net.secure && !net.known {
-                nl.status.set_text(&format!("Password for {}", net.ssid));
+                show_join(nl, Some(&net));
                 *nl.pending.borrow_mut() = Some(net);
-                nl.pass.set_text("");
-                nl.pass_row.set_reveal_child(true);
-                (nl.on_typing)(true);
-                nl.pass.grab_focus();
             } else {
                 run(nl, format!("Connecting to {}…", net.ssid), move || {
                     sys::wifi_connect(&net, None)
@@ -508,9 +565,7 @@ fn join_pending(nl: &List) {
         return;
     };
     let pw = nl.pass.text().to_string();
-    nl.pass_row.set_reveal_child(false);
-    (nl.on_typing)(false);
-    nl.pass.set_text("");
+    show_join(nl, None);
     run(nl, format!("Connecting to {}…", net.ssid), move || {
         sys::wifi_connect(&net, Some(pw))
     });

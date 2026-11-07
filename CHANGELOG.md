@@ -2,6 +2,14 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.17
+
+- Wi-Fi: picking a network that needs a password now opens its own card,
+  outlined in the accent color: "Join “<network>”", "Type the Wi-Fi
+  password", the password box, Cancel and Connect. The list of networks
+  below dims while it's open, so it's clear you've moved on from choosing a
+  network to joining it.
+
 ## 0.6.16
 
 - Battery: any power supply that isn't a battery and says it's online now

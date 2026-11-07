@@ -146,6 +146,15 @@ button.qs-tile:checked:active { background-color: @rd_accent; }
   background: @rd_tile_bg; color: @rd_fg; border: none; box-shadow: none;
 }
 .qs-list-title { font-size: 20px; font-weight: 600; }
+/* joining a Wi-Fi network: the password card */
+.join-card {
+  background: alpha(@rd_accent, 0.16);
+  border: 2px solid @rd_accent; border-radius: 20px;
+  padding: 14px 14px 12px 14px; margin: 2px 0 6px 0;
+}
+.join-title { font-size: 18px; font-weight: 700; }
+.join-entry { box-shadow: inset 0 0 0 2px @rd_accent; }
+button.join-btn { background: @rd_accent; color: @rd_accent_fg; font-weight: 700; }
 .qs-list { background: none; }
 .qs-list row { border-radius: 14px; }
 .qs-list-row { padding: 10px 8px; }

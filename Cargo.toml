@@ -8,8 +8,8 @@ license = "GPL-2.0-only"
 [dependencies]
 # gtk4-layer-shell 0.5 is built against gtk4 0.9 - bump them together.
 # (e.g. gtk4 0.10 + gtk4-layer-shell 0.6/0.7) if cargo complains about two gtk4 versions.
-gtk = { package = "gtk4", version = "0.9", features = ["v4_10"] }  # GTK 4.10+ (24.04 has 4.14)
-gtk4-layer-shell = { version = "0.5", optional = true }
+gtk = { package = "gtk4", version = "0.11.5", features = ["v4_10"] }  # GTK 4.10+ (24.04 has 4.14)
+gtk4-layer-shell = { version = "0.8.1", optional = true }
 # window list (recents / switching / closing) via wlr-foreign-toplevel-management
 wayland-client = "0.31"
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }

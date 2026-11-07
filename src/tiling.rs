@@ -216,16 +216,32 @@ pub fn dock(d: i64, t: i64, side: Side) {
     }
 }
 
-/// Put window `d` on `side` of the whole group (workspace) `num` - e.g. to
-/// the right of two windows stacked on top of each other.
+/// Put window `d` on `side` of the whole group (workspace) `num`: it gets
+/// that half of the screen (left, right, top or bottom), and the group, as it
+/// was, the other half - e.g. two windows stacked on top of each other stay
+/// stacked, on the right of the new one.
+///
+/// How sway places things decides the steps (checked against sway's source):
+/// "move container to workspace" puts a window next to whatever was last
+/// focused there - often *inside* a stack - and "move to mark" on a
+/// container puts it inside too. Only moving something onto a single window
+/// reliably makes them neighbours. So:
+///  1. wrap the whole group into one container C (and turn the workspace
+///     the way the new window goes);
+///  2. park C on a spare workspace, so the group's workspace is empty;
+///  3. move the new window into the empty group workspace (now its only
+///     window);
+///  4. wrap the parked group again and move it onto the new window: they
+///     become neighbours, the group after the window;
+///  5. for right / bottom, swap the two.
 pub fn dock_group(d: i64, num: i64, side: Side) {
     let out = shell::shell_output_name();
-    let find = || {
+    let group = |n: i64| {
         sway::groups(out.as_deref())
             .into_iter()
-            .find(|g| g.num == num)
+            .find(|g| g.num == n)
     };
-    let Some(g) = find() else { return };
+    let Some(g) = group(num) else { return };
     // dragged out of this same group: take it out first
     if g.root.windows().iter().any(|w| w.id == d) {
         let k = sway::free_workspace();
@@ -233,47 +249,52 @@ pub fn dock_group(d: i64, num: i64, side: Side) {
             "[con_id={d}] move container to workspace number {k}"
         ));
     }
-    let Some(g) = find() else {
-        // it was the group's only window
-        return;
-    };
     let want_h = matches!(side, Side::Left | Side::Right);
-    let before = matches!(side, Side::Left | Side::Top);
-    // Wrap everything in the group into one container, turn the group the
-    // other way, then add the window next to that container: it gets one
-    // half (left, right, top or bottom) and the group, as it was, the other.
-    // (Joining an existing row instead put the window inside a stack when
-    // that stack was at the end.)
-    let Some(w) = g.root.windows().first().cloned() else {
+    let split = if want_h {
+        "split horizontal"
+    } else {
+        "split vertical"
+    };
+    // wrap everything on workspace `n` into one container; its id
+    let wrap = |n: i64, how: &str| -> Option<i64> {
+        let g = group(n)?;
+        let w = g.root.windows().first().cloned()?;
+        let ups = g.root.depth_of(w.id).unwrap_or(1).max(1);
+        let mut cmd = format!("[con_id={}] focus", w.id);
+        for _ in 0..ups {
+            cmd += "; focus parent";
+        }
+        cmd += &format!("; {how}");
+        sway::run(&cmd);
+        match group(n)?.root {
+            Node::Split { children, .. } if children.len() == 1 => Some(children[0].id()),
+            _ => None,
+        }
+    };
+    // 1. the group as one container
+    let Some(c) = wrap(num, split) else {
+        eprintln!("rusttouch: couldn't gather window group {num} into one container");
         return;
     };
-    let ups = g.root.depth_of(w.id).unwrap_or(1).max(1);
-    let mut cmd = format!("[con_id={}] focus", w.id);
-    for _ in 0..ups {
-        cmd += "; focus parent";
-    }
-    cmd += if want_h {
-        "; split horizontal"
-    } else {
-        "; split vertical"
-    };
-    sway::run(&cmd);
-    // the window joins at the end: [group, window]
+    // 2. parked on a spare workspace
+    let spare = sway::free_workspace();
+    sway::run(&format!(
+        "[con_id={c}] move container to workspace number {spare}"
+    ));
+    // 3. the new window alone on the group's workspace
     sway::run(&format!(
         "[con_id={d}] move container to workspace number {num}"
     ));
-    if before {
-        // Left / top: move the group past the window. (`swap` with a
-        // container left it on the wrong side; moving a container towards a
-        // single window just trades their places.)
-        if let Some(Node::Split { children, .. }) = find().map(|g| g.root) {
-            if let Some(group) = children.iter().map(|c| c.id()).find(|&c| c != d) {
-                sway::run(&format!(
-                    "[con_id={group}] move {}",
-                    if want_h { "right" } else { "down" }
-                ));
-            }
-        }
+    // 4. the group back, next to (after) the new window
+    let Some(c2) = wrap(spare, "split horizontal") else {
+        return;
+    };
+    sway::run(&format!(
+        "[con_id={c2}] move container to workspace number {num}; [con_id={d}] focus"
+    ));
+    // 5. right / bottom: the window goes after the group
+    if !matches!(side, Side::Left | Side::Top) {
+        sway::run(&format!("[con_id={d}] swap container with con_id {c2}"));
     }
 }
 

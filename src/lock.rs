@@ -326,8 +326,9 @@ impl LockInner {
     }
 
     /// Run `f` once the screen is really covered: when the compositor
-    /// confirms the session lock - or a moment after the plain cover went
-    /// up, or right away if nothing is being locked. Waits 3s at most.
+    /// confirms the session lock (however long that takes - if it never
+    /// does, `f` never runs; the log notes it after 3s), or a moment after the
+    /// plain cover went up, or right away if nothing is being locked.
     pub fn when_locked(self: &Rc<Self>, f: impl FnOnce() + 'static) {
         #[cfg(feature = "layer")]
         let waiting = self.locked.get()

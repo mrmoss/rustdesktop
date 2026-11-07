@@ -98,7 +98,7 @@ Download `rusttouch_<version>_amd64.deb` (or `arm64` for ARM) from the
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS   # with SHA256SUMS from the same release: must say "OK"
-sudo apt install ./rusttouch_0.6.24_amd64.deb
+sudo apt install ./rusttouch_0.6.25_amd64.deb
 ```
 
 Restart, and on the login screen pick **RustTouch** (click your name, then the gear or session
@@ -123,8 +123,8 @@ gh attestation verify rusttouch-*.tar.gz --repo mrmoss/rusttouch   # optional, n
 Then:
 
 ```sh
-tar xzf rusttouch-0.6.24-linux-x86_64.tar.gz
-cd rusttouch-0.6.24-linux-x86_64
+tar xzf rusttouch-0.6.25-linux-x86_64.tar.gz
+cd rusttouch-0.6.25-linux-x86_64
 ./deps.sh       # the helpers RustTouch uses (asks for your password)
 ./install.sh    # copies it into /usr/local and adds it to the login screen
 ```
@@ -265,7 +265,7 @@ Intel/AMD and ARM on Ubuntu 24.04 (they work on 26.04 too) and puts them in a **
 
 ```sh
 # 1. bump `version` in Cargo.toml (and CHANGELOG.md) and commit it
-git tag v0.6.24
+git tag v0.6.25
 git push --tags
 # 2. wait for the "release" workflow, look over the draft under Releases, then publish it
 ```
@@ -300,6 +300,11 @@ repositories, GitHub Actions is free.
   clears what was typed.
 - **Going to sleep** waits until the window manager confirms the lock screen is up, so what was
   on the screen can't flash up when it wakes.
+- **Closing the lid is only locked where the lock is secure.** When the system itself goes to
+  sleep (the lid closes, the battery is critical), RustTouch can't stop it. On sway it locks first
+  and holds the sleep back until the lock is confirmed. On a window manager without the session
+  lock nothing is locked, so the computer sleeps - and wakes - **unlocked**; RustTouch tells you
+  so once after logging in. Use sway if the device holds anything private.
 - **Wi-Fi passwords** go straight to NetworkManager over D-Bus, never on a command line (where
   other programs could read them). Saved networks are found by the network's own name and only
   among Wi-Fi profiles, so a network named like your VPN can't touch the VPN profile.

@@ -2,6 +2,28 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.25
+
+- Security follow-up: PAM's answer callback checks everything before
+  allocating its replies (it leaked them when called without data); the
+  comment on when_locked() says it waits as long as the compositor takes;
+  README says plainly that closing the lid only locks where the session
+  lock works (on other window managers the computer sleeps and wakes
+  unlocked).
+
+- Window groups, for real this time: dropping a window on a group's edge
+  line puts it on that side of *all* the group's windows, taking that half
+  of the screen, with the group exactly as it was on the other half.
+  Checked against sway's own code why it went wrong before: "move to
+  workspace" puts a window next to whatever was last focused there - often
+  inside a stack - so the new window kept landing in the wrong place. Now
+  the group is gathered into one container and set aside, the new window
+  is put on the empty group workspace, and the group is moved back next to
+  it (moving onto a single window is the one placement sway does
+  predictably); for right / bottom the two then swap.
+  Dropping onto a half of one window still puts it into that half of that
+  window.
+
 ## 0.6.24
 
 - Keyboard (wide landscape layout): the → key is as wide as the other

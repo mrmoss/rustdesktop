@@ -112,15 +112,13 @@ unsafe extern "C" fn conv(
     resp: *mut *mut PamResponse,
     data: *mut c_void,
 ) -> c_int {
-    if n <= 0 || n > 32 || msgs.is_null() || resp.is_null() {
+    // (all the checks before anything is allocated)
+    if n <= 0 || n > 32 || msgs.is_null() || resp.is_null() || data.is_null() {
         return PAM_CONV_ERR;
     }
     let replies = calloc(n as usize, std::mem::size_of::<PamResponse>()) as *mut PamResponse;
     if replies.is_null() {
         return PAM_BUF_ERR;
-    }
-    if data.is_null() {
-        return PAM_CONV_ERR;
     }
     let cd = &*(data as *const ConvData);
     for i in 0..n as isize {

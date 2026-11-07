@@ -36,11 +36,68 @@ pub fn icon_for_app_id(app_id: &str) -> Option<gio::Icon> {
 
 pub fn icon_image(icon: Option<&gio::Icon>, px: i32) -> gtk::Image {
     let img = match icon {
-        Some(i) => gtk::Image::from_gicon(i),
+        Some(i) if in_theme(i) => gtk::Image::from_gicon(i),
+        // not in the icon theme in use: look in the other installed themes
+        // (e.g. Additional Drivers' "jockey" icon is only in Ubuntu's Yaru)
+        Some(i) => match other_theme_icon(i, px) {
+            Some(p) => gtk::Image::from_paintable(Some(&p)),
+            None => gtk::Image::from_icon_name("application-x-executable"),
+        },
         None => gtk::Image::from_icon_name("application-x-executable"),
     };
     img.set_pixel_size(px);
     img
+}
+
+/// Can the icon theme in use draw this icon? (Files and other non-theme
+/// icons always count.)
+fn in_theme(icon: &gio::Icon) -> bool {
+    if icon.downcast_ref::<gio::ThemedIcon>().is_none() {
+        return true;
+    }
+    gdk::Display::default()
+        .map(|d| gtk::IconTheme::for_display(&d).has_gicon(icon))
+        .unwrap_or(true)
+}
+
+thread_local! {
+    /// the other installed icon themes, made once
+    static OTHER_THEMES: Vec<gtk::IconTheme> = {
+        let mut names: Vec<String> = ["/usr/share/icons", "/usr/local/share/icons"]
+            .iter()
+            .filter_map(|d| std::fs::read_dir(d).ok())
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().join("index.theme").is_file())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names.dedup();
+        // the usual desktop themes first
+        names.sort_by_key(|n| !matches!(n.as_str(), "Yaru" | "Adwaita" | "hicolor" | "breeze" | "Papirus"));
+        names
+            .into_iter()
+            .map(|n| {
+                let t = gtk::IconTheme::new();
+                t.set_theme_name(Some(&n));
+                t
+            })
+            .collect()
+    };
+}
+
+fn other_theme_icon(icon: &gio::Icon, px: i32) -> Option<gdk::Paintable> {
+    OTHER_THEMES.with(|themes| {
+        let t = themes.iter().find(|t| t.has_gicon(icon))?;
+        let p = t.lookup_by_gicon(
+            icon,
+            px,
+            2,
+            gtk::TextDirection::None,
+            gtk::IconLookupFlags::empty(),
+        );
+        Some(p.upcast())
+    })
 }
 
 /// Icon + label button used in the drawer and the dock.

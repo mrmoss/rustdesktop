@@ -185,7 +185,13 @@ pub fn build(shell: &Shell, window: Option<gtk::ApplicationWindow>) -> Lock {
                 l.locked.set(false);
                 set_marker(false);
             }
-            l.run_when_locked();
+            // the plain cover (asked for with insecure_lock) is up: go ahead;
+            // nothing locked: don't
+            if l.locked.get() {
+                l.run_when_locked();
+            } else {
+                l.drop_when_locked();
+            }
         });
         // the compositor confirms the screen is covered: now it may sleep
         let l = Rc::downgrade(&lock);
@@ -338,13 +344,28 @@ impl LockInner {
             let _ = glib::timeout_add_local_once(std::time::Duration::from_millis(400), f);
             return;
         }
+        // Only the compositor's "locked" event runs it - never a timeout:
+        // that event is exactly what guarantees the screen is covered before
+        // the system sleeps. (If it never comes, logind still suspends once
+        // its own delay is over; this side just doesn't hurry it along.)
         self.when_locked.borrow_mut().push(Box::new(f));
         let l = Rc::downgrade(self);
         let _ = glib::timeout_add_local_once(std::time::Duration::from_secs(3), move || {
             if let Some(l) = l.upgrade() {
-                l.run_when_locked();
+                if !l.when_locked.borrow().is_empty() {
+                    eprintln!("rusttouch: still waiting for the compositor to confirm the lock");
+                }
             }
         });
+    }
+
+    /// The lock failed: what was waiting for it doesn't run (it would let
+    /// the system sleep, or sleep it, without a lock).
+    fn drop_when_locked(&self) {
+        let n = self.when_locked.borrow_mut().drain(..).count();
+        if n > 0 {
+            eprintln!("rusttouch: not locked - not going ahead with what was waiting for the lock");
+        }
     }
 
     fn run_when_locked(&self) {

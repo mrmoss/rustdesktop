@@ -93,7 +93,7 @@ button.qs-tile:checked:active { background-color: @rd_accent; }
 .qs-slider scale slider { min-width: 26px; min-height: 26px; }
 /* lock / sleep / restart...: icon and label sit a little lower (they
    looked high in the button) */
-button.qs-tile.power-btn { min-height: 56px; padding: 17px 12px 7px 12px; }
+button.qs-tile.power-btn { min-height: 56px; padding: 17px 12px 11px 12px; }
 
 /* ---------- recents ---------- */
 .recents { background: alpha(@rd_panel_bg, 0.94); color: @rd_fg; }

@@ -2,6 +2,31 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.23
+
+- App icons that aren't in the icon theme in use are looked up in the other
+  installed icon themes (e.g. "Additional Drivers", whose icon is only in
+  Ubuntu's Yaru theme, showed no icon); if none has it, a generic app icon.
+
+## 0.6.22
+
+Third security review.
+
+- Sleep: only the compositor's "locked" event lets the system sleep -
+  there's no longer a 3-second timeout that went ahead without it (the log
+  just says it's still waiting). If locking fails, what was waiting for it
+  (letting the system sleep, the Sleep button) doesn't happen.
+- PAM: only the first hidden prompt gets the password. A second hidden
+  prompt (a one-time code, another factor) makes the check fail instead of
+  being handed the password.
+- sway: answers bigger than 16 MB are refused before any memory is set
+  aside for them.
+- Wi-Fi: joining a network with a password keeps the network's saved
+  profile until the new one has connected, and only then replaces it - a
+  failed try no longer loses the saved password.
+- Pull-down: Lock / Sleep / Restart... buttons get 4px more room at the
+  bottom.
+
 ## 0.6.21
 
 - Window groups: dropping a window on the left (or top) edge line of a

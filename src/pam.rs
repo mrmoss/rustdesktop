@@ -92,8 +92,16 @@ unsafe fn drop_replies(replies: *mut PamResponse, n: isize) {
     free(replies as *mut c_void);
 }
 
-/// PAM asks questions. Only a hidden-input prompt (the password question)
-/// gets the password. A visible-input prompt asks for something else (a user
+/// What the conversation needs: the password, and whether it was given out.
+struct ConvData {
+    password: *const c_char,
+    answered: std::cell::Cell<bool>,
+}
+
+/// PAM asks questions. Only the first hidden-input prompt (the password
+/// question) gets the password; a second hidden one is asking for something
+/// else (a one-time code, another factor), which the lock screen can't
+/// answer, so the check fails rather than hand it the password. A visible-input prompt asks for something else (a user
 /// name, a one-time code shown on screen...) which the lock screen can't
 /// answer, so it fails the check instead of showing the password to it.
 /// Messages (errors, information) need no answer. PAM frees the replies with
@@ -111,7 +119,10 @@ unsafe extern "C" fn conv(
     if replies.is_null() {
         return PAM_BUF_ERR;
     }
-    let password = data as *const c_char;
+    if data.is_null() {
+        return PAM_CONV_ERR;
+    }
+    let cd = &*(data as *const ConvData);
     for i in 0..n as isize {
         let m = *msgs.offset(i);
         if m.is_null() {
@@ -120,7 +131,12 @@ unsafe extern "C" fn conv(
         }
         match (*m).msg_style {
             PAM_PROMPT_ECHO_OFF => {
-                let copy = strdup(password);
+                if cd.answered.replace(true) {
+                    eprintln!("rusttouch: the login system asked for a second secret - the lock screen only has the password");
+                    drop_replies(replies, i);
+                    return PAM_CONV_ERR;
+                }
+                let copy = strdup(cd.password);
                 if copy.is_null() {
                     drop_replies(replies, i);
                     return PAM_BUF_ERR;
@@ -156,9 +172,13 @@ pub fn authenticate(user: &str, password: String) -> bool {
     let pw = CString::new(password.as_bytes()).expect("checked for NUL above");
     wipe(password);
     let pw = pw.into_raw(); // wiped and freed below
+    let data = ConvData {
+        password: pw,
+        answered: std::cell::Cell::new(false),
+    };
     let c = PamConv {
         conv: Some(conv),
-        appdata_ptr: pw as *mut c_void,
+        appdata_ptr: &data as *const ConvData as *mut c_void,
     };
     let mut h: *mut c_void = ptr::null_mut();
     let ok = unsafe {

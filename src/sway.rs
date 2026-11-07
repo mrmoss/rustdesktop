@@ -14,6 +14,8 @@ const RUN_COMMAND: u32 = 0;
 const GET_WORKSPACES: u32 = 1;
 const SUBSCRIBE: u32 = 2;
 const GET_TREE: u32 = 4;
+/// The biggest answer from sway that's read (16 MB).
+const MAX_REPLY: usize = 16 * 1024 * 1024;
 
 pub fn available() -> bool {
     std::env::var_os("SWAYSOCK").is_some()
@@ -44,6 +46,12 @@ fn recv(s: &mut UnixStream) -> Option<(u32, Value)> {
     }
     let len = u32::from_le_bytes(head[6..10].try_into().ok()?) as usize;
     let kind = u32::from_le_bytes(head[10..14].try_into().ok()?);
+    // (a window tree is a few hundred KB even with lots of windows; anything
+    // far bigger is broken - don't try to make room for it)
+    if len > MAX_REPLY {
+        eprintln!("rusttouch: sway sent a {len} byte answer - too big, ignored");
+        return None;
+    }
     let mut body = vec![0u8; len];
     s.read_exact(&mut body).ok()?;
     Some((kind, serde_json::from_slice(&body).ok()?))

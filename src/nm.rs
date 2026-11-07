@@ -251,8 +251,9 @@ pub fn connect_with_password(ssid: &str, kind: &str, password: &str) -> Result<(
     let device = wifi_device(&bus)?;
 
     // a Wi-Fi network with this name saved before (perhaps with an old
-    // password) is replaced, like `nmcli device wifi connect` does
-    forget_on(&bus, ssid);
+    // password) is replaced, like `nmcli device wifi connect` does - but
+    // only once the new one has connected: until then the old one stays
+    let old = saved_wifi(&bus, ssid);
 
     let mut connection: HashMap<String, Variant> = HashMap::new();
     connection.insert("id".into(), ssid.to_variant());
@@ -286,6 +287,10 @@ pub fn connect_with_password(ssid: &str, kind: &str, password: &str) -> Result<(
     let result = wait_active(&bus, active.as_str());
     if result.is_err() {
         let _ = call(&bus, saved.as_str(), CONNECTION, "Delete", None, 5000);
+    } else {
+        for p in old.iter().filter(|p| p.as_str() != saved.as_str()) {
+            let _ = call(&bus, p, CONNECTION, "Delete", None, 5000);
+        }
     }
     result
 }

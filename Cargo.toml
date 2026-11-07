@@ -1,6 +1,6 @@
 [package]
 name = "rusttouch"
-version = "0.6.9"
+version = "0.6.10"
 edition = "2021"
 description = "A tiny Android-style touch shell for Wayland (layer-shell) with an X11/windowed fallback"
 license = "GPL-2.0-only"

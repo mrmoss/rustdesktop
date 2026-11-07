@@ -159,6 +159,26 @@ pub const KEYS: &[Key] = &[
         help: "seconds the auto-hiding bars stay after you bring them back or touch them",
     },
     Key {
+        name: "display_scale",
+        default: "",
+        help: "how big everything is on the screen, e.g. 1.5 (empty = leave it as it is); one scale for every screen, since other screens show a copy",
+    },
+    Key {
+        name: "battery_warn_level",
+        default: "15",
+        help: "percent: warn when the battery gets this low (while not charging)",
+    },
+    Key {
+        name: "battery_warn_mode",
+        default: "both",
+        help: "both | popup | off  (the low battery warning: sound and popup, popup only, or none)",
+    },
+    Key {
+        name: "battery_warn_test",
+        default: "on",
+        help: "on | off  (TEST: warn at every 1% the battery goes down, to try the sound)",
+    },
+    Key {
         name: "bars_autohide",
         default: "off",
         help: "on | off  (hide both bars over apps; tap or swipe a screen edge to bring them back)",

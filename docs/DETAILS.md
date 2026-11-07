@@ -26,7 +26,7 @@ Think "Phosh, but a weekend project you can read in one sitting".
 | **Tray** | Apps with tray icons (StatusNotifierItem, e.g. `rustsync-gui --tray`) show in the top bar. Tap = open, long-press / right-click = the app's menu. |
 | **Clock & bars** | Settings → *Clock & bars*: 12/24-hour time, what the top bar clock shows, date style (default *Thursday November 5, 2026*), the heights of the top bar and the ◀ ● ■ bar, and **auto-hide** for each bar (tap/swipe the screen edge to bring it back). |
 | **Startup apps** | Settings → *Startup apps*: RustTouch starts *everything GNOME starts* (`~/.config/autostart`), or *only the ones you pick* - tick a subset for RustTouch without changing GNOME. Add installed apps or any command (e.g. `rustsync start`). |
-| **Multiple monitors** | Extra monitors mirror the main screen (wl-mirror). Settings → *Displays*: which screen is main, resolution, scale, rotation. |
+| **Multiple monitors** | Extra monitors mirror the main screen (wl-mirror). Settings → *Displays*: one scale, and each screen's resolution, refresh rate and rotation. |
 | **One config file** | `~/.config/rusttouch/rusttouch.conf` - everything above, commented. Edit it by hand or in the app; rusttouch applies changes live. Wi-Fi/Bluetooth/auto-rotate are remembered across logins. |
 
 ### The config file

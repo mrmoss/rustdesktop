@@ -217,9 +217,17 @@ pub fn apply_saved(cfg: &Config, skip_transform_of_builtin: bool) {
         if !mode.is_empty() {
             args.extend(["--mode".into(), mode]);
         }
-        let scale = saved(cfg, &o.name, "scale");
-        if !scale.is_empty() {
-            args.extend(["--scale".into(), scale]);
+        // One scale (Settings > Displays): it's set on the main screen; the
+        // others show a copy of it, stretched to fit, so theirs doesn't
+        // matter. (An older per-screen choice still counts until then.)
+        if o.name == shell {
+            let mut scale = cfg.get("display_scale");
+            if scale.is_empty() {
+                scale = saved(cfg, &o.name, "scale");
+            }
+            if !scale.is_empty() {
+                args.extend(["--scale".into(), scale]);
+            }
         }
         let tf = saved(cfg, &o.name, "transform");
         if !tf.is_empty() && !(skip_transform_of_builtin && is_builtin(&o.name)) {

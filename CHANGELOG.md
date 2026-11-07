@@ -2,6 +2,24 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.10
+
+- Low battery warning: a popup ("Battery low · 14%") and a sound when the
+  battery gets down to the level in Settings > Power (5-30%, default 15%),
+  once, while not charging. Settings > Power > Low battery: the level,
+  "Sound and popup" / "Popup only" / "Off", and "Hear it now".
+  **Test switch, on for now:** "Test: warn at every 1% down" warns at every
+  percent the battery drops, to try the sound - turn it off (or remove it)
+  for normal use. The sound is the sound theme's battery-low (Yaru on
+  Ubuntu), played with canberra-gtk-play, paplay or pw-play.
+- Settings > Displays: no more "Main screen" choice (other screens always
+  show a copy of the built-in one). One Scale for everything; each screen
+  has its resolution and refresh rate and its rotation, and other screens
+  an on/off switch. An old main-screen choice is dropped.
+- Home screen: the remove strip opens only right at the top edge (56px,
+  removes at 30px), so moving icons around the top row doesn't pull it out.
+- Settings: the custom accent swatch is the same shape as the presets.
+
 ## 0.6.9
 
 - Settings: the drop-down lists are gone. Tapping a choice now opens the

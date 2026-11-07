@@ -97,7 +97,7 @@ Download `rusttouch_<version>_amd64.deb` (or `arm64` for ARM) from the
 [Releases page](../../releases), then:
 
 ```sh
-sudo apt install ./rusttouch_0.6.9_amd64.deb
+sudo apt install ./rusttouch_0.6.10_amd64.deb
 ```
 
 Restart, and on the login screen pick **RustTouch** (click your name, then the gear or session
@@ -114,8 +114,8 @@ two copies don't get mixed up.
 Rust needed:
 
 ```sh
-tar xzf rusttouch-0.6.9-linux-x86_64.tar.gz
-cd rusttouch-0.6.9-linux-x86_64
+tar xzf rusttouch-0.6.10-linux-x86_64.tar.gz
+cd rusttouch-0.6.10-linux-x86_64
 ./deps.sh       # the helpers RustTouch uses (asks for your password)
 ./install.sh    # copies it into /usr/local and adds it to the login screen
 ```
@@ -159,6 +159,7 @@ goes away.
 | `network-manager` | Wi-Fi in the pull-down menu |
 | `bluez` | Bluetooth in the pull-down menu |
 | `wireplumber`, `pulseaudio-utils` | Volume and choosing speakers, headphones and microphones |
+| `sound-theme-freedesktop` | The low battery warning sound (Ubuntu's own Yaru sounds are used if installed) |
 | `wtype` | Sends keys like "back" to the app in front (Wayland apps) |
 | `xdotool` | The same for older X11 apps |
 | `foot` | A small terminal (Super+Enter with a real keyboard) |
@@ -221,10 +222,10 @@ Swipe down and tap **Settings**. The search box at the top finds a setting by na
 
 - **Appearance**: theme, accent color, home and lock screen backgrounds, a message on the lock screen
 - **Clock & bars**: 12 or 24 hour time, date style, bar sizes, auto-hide and how long the bars wait
-- **Displays**: resolution, rotation, which screen is the main one (other screens show a copy of it)
+- **Displays**: one scale for everything, auto-rotate, and each screen's resolution, refresh rate and rotation (other screens show a copy of the built-in one)
 - **Startup apps**: which programs start when you log in
 - **Windows**: side by side behaviour
-- **Power & screen**: when the screen turns off, what the power button does
+- **Power & screen**: when the screen turns off, what the power button does, the low battery warning (when, and sound or just a popup)
 - **Keyboard**: size, layout in landscape, colors, whether it opens by itself, how fast the text cursor blinks
 - **Network**: Wi-Fi and Bluetooth
 
@@ -255,7 +256,7 @@ Intel/AMD and ARM on Ubuntu 24.04 (they work on 26.04 too) and puts them in a **
 
 ```sh
 # 1. bump `version` in Cargo.toml (and CHANGELOG.md) and commit it
-git tag v0.6.9
+git tag v0.6.10
 git push --tags
 # 2. wait for the "release" workflow, look over the draft under Releases, then publish it
 ```

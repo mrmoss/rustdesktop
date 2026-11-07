@@ -88,7 +88,7 @@ fn build(app: &gtk::Application) {
             css.push_str(&format!(".accent-{name} {{ background: {hex}; }}\n"));
         }
         // the custom swatch: a color wheel look
-        css.push_str(".accent-custom { background-image: linear-gradient(135deg, #f44, #fb3, #4d6, #4cf, #66f, #d4f); color: white; font-weight: 700; border-radius: 999px; min-width: 44px; min-height: 44px; padding: 0; }\n");
+        css.push_str(".accent-custom { background-image: linear-gradient(135deg, #f44, #fb3, #4d6, #4cf, #66f, #d4f); color: white; font-weight: 700; }\n");
         for (name, grad) in config::BACKGROUNDS {
             css.push_str(&format!(".bg-{name} {{ background: {grad}; }}\n"));
         }
@@ -1148,9 +1148,50 @@ const SLEEP: &[(&str, &str)] = &[
     ("3600", "1 hour"),
 ];
 
+const BATTERY_LEVELS: &[(&str, &str)] = &[
+    ("5", "5%"),
+    ("10", "10%"),
+    ("15", "15%"),
+    ("20", "20%"),
+    ("25", "25%"),
+    ("30", "30%"),
+];
+const BATTERY_MODES: &[(&str, &str)] = &[
+    ("both", "Sound and popup"),
+    ("popup", "Popup only"),
+    ("off", "Off"),
+];
+
 fn power(_: &Rc<Ctx>) -> gtk::Widget {
     let cfg = Config::load();
+    // hear/see the warning now (RustTouch shows it)
+    let try_it = gtk::Button::with_label("Try it");
+    try_it.connect_clicked(|_| {
+        let _ = std::process::Command::new("rusttouch")
+            .args(["--do", "battery-test"])
+            .spawn();
+    });
     page(&[
+        group(
+            "Low battery",
+            &[
+                choice_row(
+                    &cfg,
+                    "battery_warn_level",
+                    "Warn at",
+                    Some("Once, when the battery gets this low (not while charging)"),
+                    BATTERY_LEVELS,
+                ),
+                choice_row(&cfg, "battery_warn_mode", "Warning", None, BATTERY_MODES),
+                switch_row(
+                    &cfg,
+                    "battery_warn_test",
+                    "Test: warn at every 1% down",
+                    Some("For trying out the sound - turn off for normal use"),
+                ),
+                row("Hear it now", None, &try_it),
+            ],
+        ),
         group(
             "When idle",
             &[
@@ -1451,134 +1492,122 @@ const ROTATIONS: &[(&str, &str)] = &[
 
 fn displays(ctx: &Rc<Ctx>) -> gtk::Widget {
     let cfg = Config::load();
+    // Other screens always show a copy of the built-in one, so there's no
+    // "main screen" to choose any more (an old choice is dropped).
+    if cfg.get("shell_output") != "auto" && !cfg.get("shell_output").is_empty() {
+        config::set("shell_output", "auto");
+    }
     let outs = display::list();
     let mut parts: Vec<gtk::Widget> = Vec::new();
+    let main = display::shell_output(&cfg, &outs).unwrap_or_default();
 
-    let shell = display::shell_output(&cfg, &outs).unwrap_or_default();
-
-    // which monitor gets the bars / home screen
-    let mut names: Vec<String> = vec!["Automatic (built-in screen)".into()];
-    names.extend(outs.iter().map(|o| format!("{} {}", o.name, o.desc)));
-    let current = cfg.get("shell_output");
-    let sel = outs
+    // one scale for everything: the other screens show a copy of the main one
+    let scale_now = outs
         .iter()
-        .position(|o| o.name == current)
-        .map(|i| i + 1)
-        .unwrap_or(0);
-    let ids: Vec<String> = outs.iter().map(|o| o.name.clone()).collect();
-    let c = ctx.clone();
-    parts.push(group(
-        "RustTouch",
+        .find(|o| o.name == main)
+        .map(|o| o.scale)
+        .unwrap_or(1.0);
+    let labels: Vec<String> = SCALES
+        .iter()
+        .map(|s| format!("{}%", (s.parse::<f64>().unwrap_or(1.0) * 100.0) as i32))
+        .collect();
+    let sel = SCALES
+        .iter()
+        .position(|s| (s.parse::<f64>().unwrap_or(1.0) - scale_now).abs() < 0.01);
+    let mut screen_rows = vec![dyn_choice(
+        "Scale",
+        Some("How big everything is"),
+        &labels,
+        sel,
+        |i| config::set("display_scale", SCALES[i]),
+    )];
+    screen_rows.push(switch_row(
+        &cfg,
+        "auto_rotate",
+        "Auto-rotate",
+        Some("The built-in screen follows how you hold it"),
+    ));
+    screen_rows.push(choice_row(
+        &cfg,
+        "show_cursor",
+        "Mouse pointer",
+        None,
         &[
-            dyn_choice(
-                "Main screen",
-                Some("Where the bars and home screen go"),
-                &names,
-                Some(sel),
-                move |i| {
-                    config::set(
-                        "shell_output",
-                        if i == 0 { "auto" } else { ids[i - 1].as_str() },
-                    );
-                    refresh_later(&c, "Displays");
-                },
-            ),
-            switch_row(
-                &cfg,
-                "auto_rotate",
-                "Auto-rotate",
-                Some("Built-in screen follows the accelerometer"),
-            ),
-            choice_row(
-                &cfg,
-                "show_cursor",
-                "Mouse pointer",
-                None,
-                &[
-                    ("auto", "While a mouse is used"),
-                    ("on", "Always"),
-                    ("off", "Never"),
-                ],
-            ),
+            ("auto", "While a mouse is used"),
+            ("on", "Always"),
+            ("off", "Never"),
         ],
     ));
-    parts.push(note(
-        "Other monitors mirror the main screen (needs wl-mirror). \
-         For separate screens, use GNOME.",
-    ));
+    parts.push(group("Screen", &screen_rows));
 
     if outs.is_empty() {
         parts.push(note(
-            "No monitors found. This page works inside the rusttouch session (it uses wlr-randr).",
+            "No screens found. This page works inside the RustTouch session (it uses wlr-randr).",
         ));
         return page(&parts);
     }
 
-    for o in &outs {
+    // each screen: on/off (not the main one), resolution and refresh rate, rotation
+    let mut ordered: Vec<&display::Output> = outs.iter().collect();
+    ordered.sort_by_key(|o| o.name != main);
+    for o in ordered {
         let name = o.name.clone();
+        let is_main = o.name == main;
         let mut rows: Vec<gtk::Widget> = Vec::new();
 
-        let sw = gtk::Switch::new();
-        sw.set_active(o.enabled);
-        let only = outs.iter().filter(|x| x.enabled).count() <= 1;
-        sw.set_sensitive(o.name != shell && !(only && o.enabled));
-        let (n, c) = (name.clone(), ctx.clone());
-        sw.connect_active_notify(move |s| {
-            display::save(&n, "enabled", if s.is_active() { "on" } else { "off" });
-            refresh_later(&c, "Displays");
-        });
-        rows.push(row(
-            "On",
-            if o.name == shell {
-                Some("Main screen")
-            } else {
-                None
-            },
-            &sw,
-        ));
+        if !is_main {
+            let sw = gtk::Switch::new();
+            sw.set_active(o.enabled);
+            let (n, c) = (name.clone(), ctx.clone());
+            sw.connect_active_notify(move |s| {
+                display::save(&n, "enabled", if s.is_active() { "on" } else { "off" });
+                refresh_later(&c, "Displays");
+            });
+            rows.push(row("Show a copy of the main screen", None, &sw));
+        }
 
         if o.enabled {
             let labels: Vec<String> = o.modes.iter().map(|m| m.label()).collect();
             let sel = o.modes.iter().position(|m| m.current);
             let (n, modes) = (name.clone(), o.modes.clone());
-            rows.push(dyn_choice("Resolution", None, &labels, sel, move |i| {
-                if let Some(m) = modes.get(i) {
-                    display::save(&n, "mode", &m.arg());
-                }
-            }));
-
-            let labels: Vec<String> = SCALES
-                .iter()
-                .map(|s| format!("{}%", (s.parse::<f64>().unwrap_or(1.0) * 100.0) as i32))
-                .collect();
-            let sel = SCALES
-                .iter()
-                .position(|s| (s.parse::<f64>().unwrap_or(1.0) - o.scale).abs() < 0.01);
-            let n = name.clone();
-            rows.push(dyn_choice("Scale", None, &labels, sel, move |i| {
-                display::save(&n, "scale", SCALES[i]);
-            }));
+            rows.push(dyn_choice(
+                "Resolution and refresh rate",
+                None,
+                &labels,
+                sel,
+                move |i| {
+                    if let Some(m) = modes.get(i) {
+                        display::save(&n, "mode", &m.arg());
+                    }
+                },
+            ));
 
             let labels: Vec<String> = ROTATIONS.iter().map(|r| r.1.to_string()).collect();
             let sel = ROTATIONS.iter().position(|r| r.0 == o.transform);
             let n = name.clone();
-            let sub = display::is_builtin(&o.name).then_some("Ignored while auto-rotate is on");
+            let sub = (is_main && display::is_builtin(&o.name))
+                .then_some("Ignored while auto-rotate is on");
             rows.push(dyn_choice("Rotation", sub, &labels, sel, move |i| {
                 display::save(&n, "transform", ROTATIONS[i].0);
             }));
         }
-        let title = if o.desc.is_empty() {
-            o.name.clone()
+        let what = if is_main {
+            "Main screen"
         } else {
-            format!("{}  ·  {}", o.name, o.desc)
+            "Other screen"
+        };
+        let title = if o.desc.is_empty() {
+            format!("{what}  ·  {}", o.name)
+        } else {
+            format!("{what}  ·  {}", o.desc)
         };
         parts.push(group(&title, &rows));
     }
 
     parts.push(note(
-        "New monitors extend the desktop to the right of the main screen until you choose \
-         otherwise. Settings are remembered per monitor and re-applied whenever it is plugged in. \
-         Mirroring isn't supported by wlroots compositors.",
+        "Other screens show a copy of the main screen (needs wl-mirror), at their own \
+         resolution and rotation. Settings are remembered per screen and come back \
+         whenever it's plugged in.",
     ));
     page(&parts)
 }

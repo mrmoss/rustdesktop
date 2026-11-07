@@ -35,7 +35,7 @@ fi
 # Optional runtime helpers (shell works without them; features just hide)
 for p in sway wl-mirror phoc wvkbd squeekboard swayidle grim wtype wlr-randr iio-sensor-proxy \
          xdg-desktop-portal-gtk xdg-desktop-portal-wlr \
-         network-manager bluez wireplumber pulseaudio-utils foot labwc xdotool; do
+         network-manager bluez wireplumber pulseaudio-utils sound-theme-freedesktop foot labwc xdotool; do
   sudo apt install -y "$p" >/dev/null 2>&1 && echo "  ok      $p" || echo "  MISSING $p (optional)"
 done
 

@@ -258,9 +258,9 @@ fn move_float(h: &Home, x: f64, y: f64) {
 }
 
 /// The finger is this close to the top edge (px): the remove strip opens up.
-const REMOVE_NEAR: f64 = 130.0;
+const REMOVE_NEAR: f64 = 56.0;
 /// ...and this close: letting go removes the icon.
-const REMOVE_HOT: f64 = 52.0;
+const REMOVE_HOT: f64 = 30.0;
 
 /// The remove strip is a thin bar at the very top while you drag an icon. It
 /// only opens up as the finger gets near the top edge, like a drawer, and an

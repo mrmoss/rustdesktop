@@ -171,7 +171,7 @@ deb: _dist-build
     Maintainer: mrmoss <mrmoss@users.noreply.github.com>
     Installed-Size: $size
     Depends: $deps, sway | phoc | labwc
-    Recommends: sway, grim, swayidle, wlr-randr, wl-mirror, iio-sensor-proxy, network-manager, bluez, wireplumber, pulseaudio-utils, wtype, xdg-desktop-portal-gtk, xdg-desktop-portal-wlr
+    Recommends: sway, grim, swayidle, wlr-randr, wl-mirror, iio-sensor-proxy, network-manager, bluez, wireplumber, pulseaudio-utils, sound-theme-freedesktop, wtype, xdg-desktop-portal-gtk, xdg-desktop-portal-wlr
     Suggests: foot, xdotool
     Homepage: {{homepage}}
     Description: Simple, Android-style touch desktop for Linux tablets

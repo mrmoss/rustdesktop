@@ -610,7 +610,11 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
     let s = shell.clone();
     let _ = glib::timeout_add_seconds_local(3, move || {
         let now = sys::battery();
-        if s.status.borrow().battery != now {
+        let before = s.status.borrow().battery;
+        if let (Some((was, _)), Some((pct, false))) = (before, now) {
+            battery_warning(&s, was, pct);
+        }
+        if before != now {
             s.status.borrow_mut().battery = now;
             let st = s.status.borrow().clone();
             for f in s.status_listeners.borrow().iter() {
@@ -1036,7 +1040,10 @@ fn reload_config(shell: &Shell) {
     if changed("cursor_blink") {
         crate::theme::apply_cursor_blink(&new);
     }
-    if changed("shell_output") || old.prefixed("output.") != new.prefixed("output.") {
+    if changed("shell_output")
+        || changed("display_scale")
+        || old.prefixed("output.") != new.prefixed("output.")
+    {
         apply_displays(shell);
     }
     if changed("lock_message") {
@@ -2524,6 +2531,11 @@ pub fn do_action(shell: &Shell, name: &str) {
             }
         }
         "lock" => shell.lock(),
+        // Settings > Power > "Try it"
+        "battery-test" => {
+            let pct = shell.status().battery.map(|b| b.0).unwrap_or(15);
+            warn_battery(shell, pct);
+        }
         "none" | "" => {}
         other => eprintln!("rusttouch: unknown action {other:?}"),
     }
@@ -2599,6 +2611,39 @@ pub fn refresh_status(shell: &Shell) {
         }
         shell.polling.set(false);
     });
+}
+
+/// Warn about a low battery (the battery went from `was` to `pct` percent,
+/// not charging): once when it drops to Settings > Power > "Warn at", or -
+/// while testing (`battery_warn_test`) - at every 1% it goes down.
+fn battery_warning(shell: &Shell, was: u8, pct: u8) {
+    if pct >= was {
+        return;
+    }
+    let cfg = shell.cfg();
+    let level: u8 = cfg.get("battery_warn_level").parse().unwrap_or(15);
+    let crossed = was > level && pct <= level;
+    if crossed || cfg.on("battery_warn_test") {
+        warn_battery(shell, pct);
+    }
+}
+
+/// Show the low battery popup (and play its sound), as set in Settings.
+pub fn warn_battery(shell: &Shell, pct: u8) {
+    let mode = shell.cfg().get("battery_warn_mode");
+    if mode == "off" {
+        return;
+    }
+    eprintln!("rusttouch: battery low warning at {pct}%");
+    shell.osd.show_for(
+        Glyph::Battery(pct, false),
+        f64::from(pct) / 100.0,
+        &format!("Battery low · {pct}%"),
+        4000,
+    );
+    if mode != "popup" {
+        sys::play_sound("battery-low");
+    }
 }
 
 /// Refresh a little later (after a toggle, give the system time to react).

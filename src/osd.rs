@@ -28,10 +28,14 @@ const SHOW_MS: u64 = 1500;
 
 /// Hide `w` after a while, unless something showed it again meanwhile.
 fn hide_later(w: &gtk::ApplicationWindow, gen: &Rc<Cell<u32>>) {
+    hide_after(w, gen, SHOW_MS);
+}
+
+fn hide_after(w: &gtk::ApplicationWindow, gen: &Rc<Cell<u32>>, ms: u64) {
     let g = gen.get().wrapping_add(1);
     gen.set(g);
     let (gen, w) = (gen.clone(), w.clone());
-    let _ = glib::timeout_add_local_once(Duration::from_millis(SHOW_MS), move || {
+    let _ = glib::timeout_add_local_once(Duration::from_millis(ms), move || {
         if gen.get() == g {
             w.set_visible(false);
         }
@@ -154,6 +158,11 @@ impl Osd {
 
     /// Show for ~1.5s. `label` replaces the bar when not empty (e.g. "Mute").
     pub fn show(&self, glyph: Glyph, fraction: f64, label: &str) {
+        self.show_for(glyph, fraction, label, SHOW_MS);
+    }
+
+    /// Like show(), for `ms` milliseconds.
+    pub fn show_for(&self, glyph: Glyph, fraction: f64, label: &str, ms: u64) {
         let Some(w) = &self.window else { return };
         self.glyph.set(glyph);
         self.icon.set(glyph);
@@ -162,6 +171,6 @@ impl Osd {
         self.label.set_text(label);
         self.label.set_visible(!label.is_empty());
         w.present();
-        hide_later(w, &self.gen);
+        hide_after(w, &self.gen, ms);
     }
 }

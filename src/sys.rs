@@ -233,6 +233,42 @@ fn bt_connected() -> Option<String> {
     })
 }
 
+/// Play a sound from the desktop's sound theme by name (e.g. "battery-low"),
+/// in the background. Tries canberra-gtk-play (follows the sound theme), then
+/// plays a theme file directly with paplay or pw-play.
+pub fn play_sound(name: &str) {
+    let name = name.to_string();
+    std::thread::spawn(move || {
+        let ok = |c: &mut Command| {
+            c.stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        };
+        if ok(Command::new("canberra-gtk-play").args(["-i", &name])) {
+            return;
+        }
+        let files = [
+            format!("/usr/share/sounds/Yaru/stereo/{name}.oga"),
+            format!("/usr/share/sounds/freedesktop/stereo/{name}.oga"),
+            "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga".to_string(),
+            "/usr/share/sounds/freedesktop/stereo/bell.oga".to_string(),
+        ];
+        let Some(file) = files.iter().find(|f| Path::new(f).exists()) else {
+            eprintln!("rusttouch: no sound file for {name} (install sound-theme-freedesktop)");
+            return;
+        };
+        for player in ["paplay", "pw-play"] {
+            if ok(Command::new(player).arg(file)) {
+                return;
+            }
+        }
+        eprintln!("rusttouch: couldn't play {file} (needs paplay or pw-play)");
+    });
+}
+
 /// (percent, charging) of the main battery. Cheap (a few small sysfs files).
 pub fn battery() -> Option<(u8, bool)> {
     let mut best: Option<(bool, PathBuf)> = None;

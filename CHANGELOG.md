@@ -2,6 +2,20 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.21
+
+- Window groups: dropping a window on the left (or top) edge line of a
+  group now puts it on the left (top) half, with the group as it was on the
+  other half - e.g. two windows stacked on top of each other stay stacked
+  on the right. It used to land on the wrong side: the window was put in
+  place with `swap`, which didn't work with a whole group. Now the group is
+  moved past the window instead. Same fix for dropping onto the left / top
+  edge of a single window. Dropping on the edge of a row of windows now
+  also gives the new window half the screen (it used to be squeezed in
+  between, or into a stack at the end of the row).
+- Settings: the close button shows its ✕ again (the desktop's own close
+  button drew only an empty circle).
+
 ## 0.6.20
 
 - Pull-down: after tapping Wi-Fi or Bluetooth, holding it now always opens

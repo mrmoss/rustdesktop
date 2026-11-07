@@ -206,9 +206,13 @@ pub fn dock(d: i64, t: i64, side: Side) {
         "[con_id={t}] mark --add _rt_dock; [con_id={d}] move container to mark _rt_dock; [con_id={t}] unmark _rt_dock"
     );
     sway::run(&cmd);
-    // "move to mark" lands after the target: swap to get left / top
+    // "move to mark" puts it after the target: for left / top, move the
+    // target past it (two windows side by side just trade places)
     if matches!(side, Side::Left | Side::Top) {
-        sway::run(&format!("[con_id={d}] swap container with con_id {t}"));
+        sway::run(&format!(
+            "[con_id={t}] move {}",
+            if want_h { "right" } else { "down" }
+        ));
     }
 }
 
@@ -234,35 +238,12 @@ pub fn dock_group(d: i64, num: i64, side: Side) {
         return;
     };
     let want_h = matches!(side, Side::Left | Side::Right);
-    let Node::Split {
-        horizontal,
-        children,
-        ..
-    } = &g.root
-    else {
-        return;
-    };
     let before = matches!(side, Side::Left | Side::Top);
-    if *horizontal == want_h && children.len() > 1 {
-        // already a row (or column) the right way: join it at the start/end
-        let anchor = if before {
-            children.first()
-        } else {
-            children.last()
-        };
-        let Some(anchor) = anchor.map(|c| c.id()) else {
-            return;
-        };
-        sway::run(&format!(
-            "[con_id={anchor}] mark --add _rt_dock; [con_id={d}] move container to mark _rt_dock; [con_id={anchor}] unmark _rt_dock"
-        ));
-        if before {
-            sway::run(&format!("[con_id={d}] swap container with con_id {anchor}"));
-        }
-        return;
-    }
-    // wrap everything in the group into one container, turn the group the
-    // other way, then add the window next to that container
+    // Wrap everything in the group into one container, turn the group the
+    // other way, then add the window next to that container: it gets one
+    // half (left, right, top or bottom) and the group, as it was, the other.
+    // (Joining an existing row instead put the window inside a stack when
+    // that stack was at the end.)
     let Some(w) = g.root.windows().first().cloned() else {
         return;
     };
@@ -277,13 +258,20 @@ pub fn dock_group(d: i64, num: i64, side: Side) {
         "; split vertical"
     };
     sway::run(&cmd);
+    // the window joins at the end: [group, window]
     sway::run(&format!(
         "[con_id={d}] move container to workspace number {num}"
     ));
     if before {
+        // Left / top: move the group past the window. (`swap` with a
+        // container left it on the wrong side; moving a container towards a
+        // single window just trades their places.)
         if let Some(Node::Split { children, .. }) = find().map(|g| g.root) {
-            if let Some(first) = children.first().map(|c| c.id()).filter(|&f| f != d) {
-                sway::run(&format!("[con_id={d}] swap container with con_id {first}"));
+            if let Some(group) = children.iter().map(|c| c.id()).find(|&c| c != d) {
+                sway::run(&format!(
+                    "[con_id={group}] move {}",
+                    if want_h { "right" } else { "down" }
+                ));
             }
         }
     }

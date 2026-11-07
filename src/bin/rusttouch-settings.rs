@@ -37,7 +37,7 @@ const CSS: &str = "
 .bg-same { background: alpha(currentColor, 0.08); font-size: 12px; }
 .note { font-size: 12px; opacity: 0.7; margin: 8px 6px; }
 .settings-search { margin: 4px 2px 10px 2px; min-height: 40px; }
-.close-btn { min-width: 24px; min-height: 24px; padding: 0; font-size: 11px; font-weight: 700; }
+.close-btn { min-width: 26px; min-height: 26px; padding: 0; font-size: 13px; font-weight: 700; }
 ";
 
 #[allow(deprecated)] // FileChooserNative: deprecated in GTK 4.10 but works fine
@@ -110,21 +110,15 @@ fn build(app: &gtk::Application) {
     let back = gtk::Button::with_label("‹ Back");
     back.set_visible(false);
     header.pack_start(&back);
-    // The desktop's own close button (round, like other apps' title bars),
-    // only the close one. If the icon theme has no close icon it would be an
-    // empty button: then our own small round ✕ instead.
-    let has_icon = gdk::Display::default()
-        .map(|d| gtk::IconTheme::for_display(&d).has_icon("window-close-symbolic"))
-        .unwrap_or(false);
-    header.set_decoration_layout(Some(":close"));
-    header.set_show_title_buttons(has_icon);
+    // Our own small round close button with a ✕ drawn as text, like other
+    // apps' title bars. (The desktop's own one showed only an empty circle
+    // here: its icon didn't draw in this theme.)
+    header.set_show_title_buttons(false);
     let close = gtk::Button::with_label("✕");
     close.add_css_class("close-btn");
     close.set_tooltip_text(Some("Close"));
     close.set_valign(gtk::Align::Center);
-    if !has_icon {
-        header.pack_end(&close);
-    }
+    header.pack_end(&close);
     let title = gtk::Label::new(Some("Settings"));
     title.add_css_class("title");
     header.set_title_widget(Some(&title));

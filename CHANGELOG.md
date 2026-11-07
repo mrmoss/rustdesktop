@@ -2,6 +2,13 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.15
+
+- On a window manager without the secure session lock (not sway), a notice
+  shows for 10 seconds after logging in: "This screen can't be locked
+  securely here (the window manager has no session lock - use sway)". Once
+  per login, not again after a crash restart.
+
 ## 0.6.14
 
 Follow-up to the second security review.

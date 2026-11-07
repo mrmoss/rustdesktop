@@ -49,6 +49,7 @@ impl Osd {
         bar.set_hexpand(true);
         bar.set_valign(gtk::Align::Center);
         let label = gtk::Label::new(None);
+        label.set_justify(gtk::Justification::Center);
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         row.add_css_class("osd");
         row.set_size_request(300, -1);

@@ -31,7 +31,7 @@ chmod 700 "$RT"
 export RUSTTOUCH_RUNTIME="$RT"
 # a new login starts unlocked (the marker only matters if RustTouch crashes
 # while locked during this session)
-rm -f "$RT/locked"
+rm -f "$RT/locked" "$RT/lock-notice-shown"
 COMP="${RUSTTOUCH_COMPOSITOR:-}"
 CONF="$HOME/.config/rusttouch/rusttouch.conf"
 if [ -z "$COMP" ] && [ -f "$CONF" ]; then

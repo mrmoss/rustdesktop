@@ -652,6 +652,31 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         eprintln!("rusttouch: the screen was locked when RustTouch stopped - locking again");
         let _ = shell.lock();
     }
+    // Once per login: say so if this window manager can't lock the screen
+    // securely (no session lock - so closing the lid, for one, suspends
+    // without locking). Not again after a crash restart: the session clears
+    // the marker at login.
+    let insecure = shell.layered
+        && shell
+            .lock
+            .borrow()
+            .as_ref()
+            .map(|l| !l.is_secure())
+            .unwrap_or(false);
+    let told = sys::runtime_dir().join("lock-notice-shown");
+    if insecure && !told.exists() {
+        let _ = std::fs::write(&told, b"");
+        eprintln!("rusttouch: telling you the screen can't be locked securely here");
+        let s = shell.clone();
+        let _ = glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+            s.osd.show_for(
+                Glyph::Lock,
+                0.0,
+                "This screen can't be locked securely here\n(the window manager has no session lock - use sway)",
+                10_000,
+            );
+        });
+    }
     eprintln!("rusttouch: [{:.1}s] ready", uptime());
     // Background threads hand events over through `rx` and call wake(): the
     // GTK thread only wakes up when there is something to do (it used to

@@ -267,6 +267,16 @@ impl LockInner {
         self.message.set_visible(!text.trim().is_empty());
     }
 
+    /// Can the screen be locked securely here (the session lock, or the
+    /// windowed preview)? False on a window manager without the session lock.
+    pub fn is_secure(&self) -> bool {
+        #[cfg(feature = "layer")]
+        if self.session.is_some() {
+            return true;
+        }
+        self.window.is_none()
+    }
+
     pub fn is_locked(&self) -> bool {
         self.locked.get()
     }

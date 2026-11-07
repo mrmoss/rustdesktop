@@ -1,0 +1,8 @@
+# Installed to /etc/udev/rules.d/70-rusttouch-buttons.rules
+# Let RustTouch *read* button devices (power, volume, brightness, tablet button
+# arrays) - never full keyboards - so it can handle short/long/double power
+# presses and hold-to-repeat volume. Read-only: no program can use these
+# devices to fake button presses (the "uaccess" tag used before also allowed
+# writing). The power, volume and brightness buttons say nothing private.
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEY}=="1", ENV{ID_INPUT_KEYBOARD}!="1", MODE="0644"
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Power Button", MODE="0644"

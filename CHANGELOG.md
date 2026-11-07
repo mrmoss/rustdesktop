@@ -2,6 +2,19 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.20
+
+- Pull-down: after tapping Wi-Fi or Bluetooth, holding it now always opens
+  its list. The hold is timed by RustTouch itself from the touch events
+  (0.5s without moving) instead of GTK's long-press gesture, which after a
+  tap on the same button could stop firing. Letting go on the tile opens
+  the list (and doesn't also switch Wi-Fi/Bluetooth); sliding off and
+  letting go does nothing; moving before 0.5s is a swipe.
+- Pull-down: Lock / Sleep / Restart... icon and label centered in the
+  button (0.6.19 moved them down too far).
+- Wi-Fi password box: the show-password eye sits further in from the round
+  end, with more room around it.
+
 ## 0.6.19
 
 - Pull-down: holding Wi-Fi or Bluetooth always works now, without closing

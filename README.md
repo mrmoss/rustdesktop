@@ -98,7 +98,7 @@ Download `rusttouch_<version>_amd64.deb` (or `arm64` for ARM) from the
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS   # with SHA256SUMS from the same release: must say "OK"
-sudo apt install ./rusttouch_0.6.19_amd64.deb
+sudo apt install ./rusttouch_0.6.20_amd64.deb
 ```
 
 Restart, and on the login screen pick **RustTouch** (click your name, then the gear or session
@@ -123,8 +123,8 @@ gh attestation verify rusttouch-*.tar.gz --repo mrmoss/rusttouch   # optional, n
 Then:
 
 ```sh
-tar xzf rusttouch-0.6.19-linux-x86_64.tar.gz
-cd rusttouch-0.6.19-linux-x86_64
+tar xzf rusttouch-0.6.20-linux-x86_64.tar.gz
+cd rusttouch-0.6.20-linux-x86_64
 ./deps.sh       # the helpers RustTouch uses (asks for your password)
 ./install.sh    # copies it into /usr/local and adds it to the login screen
 ```
@@ -265,7 +265,7 @@ Intel/AMD and ARM on Ubuntu 24.04 (they work on 26.04 too) and puts them in a **
 
 ```sh
 # 1. bump `version` in Cargo.toml (and CHANGELOG.md) and commit it
-git tag v0.6.19
+git tag v0.6.20
 git push --tags
 # 2. wait for the "release" workflow, look over the draft under Releases, then publish it
 ```

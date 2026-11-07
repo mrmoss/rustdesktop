@@ -101,6 +101,9 @@ fn throttle(scale: &gtk::Scale, guard: Rc<Cell<bool>>, f: fn(f64)) {
 
 fn power_content(icon: Glyph, text: &str) -> (gtk::Box, gtk::Label) {
     let vb = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    // (centered in the button)
+    vb.set_valign(gtk::Align::Center);
+    vb.set_halign(gtk::Align::Center);
     let img = Icon::new(icon, 22).area;
     img.set_halign(gtk::Align::Center);
     let lbl = gtk::Label::new(Some(text));
@@ -229,13 +232,21 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
     // the long press never worked again - but tapping does nothing)
     let wifi_ok = Rc::new(Cell::new(true));
     let bt_ok = Rc::new(Cell::new(true));
-    for ((button, key, action), ok) in toggles.into_iter().zip([wifi_ok.clone(), bt_ok.clone()]) {
+    // a hold just opened the list: the button's own tap on letting go must
+    // not also switch Wi-Fi / Bluetooth
+    let wifi_held = Rc::new(Cell::new(false));
+    let bt_held = Rc::new(Cell::new(false));
+    for (((button, key, action), ok), held) in toggles
+        .into_iter()
+        .zip([wifi_ok.clone(), bt_ok.clone()])
+        .zip([wifi_held.clone(), bt_held.clone()])
+    {
         let (s, g) = (shell.clone(), syncing.clone());
         button.connect_toggled(move |b| {
             if g.get() {
                 return;
             }
-            if !ok.get() {
+            if !ok.get() || held.replace(false) {
                 g.set(true);
                 b.set_active(false);
                 g.set(false);
@@ -501,58 +512,58 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
         });
     }
 
-    // long-press Wi-Fi / Bluetooth -> network / device list
-    for (tile, kind) in [(&wifi, Kind::Wifi), (&bt, Kind::Bluetooth)] {
-        let button = &tile.button;
+    // Hold Wi-Fi / Bluetooth -> network / device list.
+    //
+    // Timed by hand from the raw touch events (not GTK's long-press gesture,
+    // which after a tap on the same button could stop ever firing): the
+    // finger goes down, and if it's still down and hasn't moved after 0.5s,
+    // the tile glows and says "Edit settings". Lifting it there opens the
+    // list; sliding off takes the glow away, and lifting off the tile does
+    // nothing. The button's own tap on letting go is swallowed (see the
+    // toggle handler above). The page only changes once the finger is up:
+    // swapping pages under a touch left GTK holding a touch that never ended.
+    for ((tile, kind), suppress) in [(&wifi, Kind::Wifi), (&bt, Kind::Bluetooth)]
+        .into_iter()
+        .zip([wifi_held.clone(), bt_held.clone()])
+    {
+        let button = tile.button.clone();
         let sub = tile.sub.clone();
-        let saved: std::rc::Rc<std::cell::RefCell<String>> = Default::default();
-        // The page only changes once the finger is lifted: swapping pages
-        // while the touch is still on the button left GTK holding a touch
-        // that never ended, and the pull-down stopped responding.
-        let lp = gtk::GestureLongPress::new();
-        let held = std::rc::Rc::new(std::cell::Cell::new(false));
-        // where the finger is now (relative to the tile) and whether it's on it
-        let inside = std::rc::Rc::new(std::cell::Cell::new(true));
-        // feedback while holding: an outline grows in; once held long enough
-        // the tile glows and says "Edit settings". Sliding off the tile takes
-        // the glow away again, and letting go there does nothing.
-        {
-            let b = button.clone();
-            lp.connect_begin(move |_, _| b.add_css_class("lp-pressing"));
-        }
-        let (h, b, sl, sv, ins) = (
-            held.clone(),
-            button.clone(),
-            sub.clone(),
-            saved.clone(),
-            inside.clone(),
-        );
-        lp.connect_pressed(move |g, _, _| {
-            let _ = g.set_state(gtk::EventSequenceState::Claimed); // don't toggle
-            h.set(true);
-            ins.set(true);
-            b.add_css_class("lp-ready");
-            *sv.borrow_mut() = sl.text().to_string();
-            sl.set_text("Edit settings");
-        });
-        // the finger came up (or the touch was cancelled): open the list only
-        // if it was lifted on the tile
-        let finish: std::rc::Rc<dyn Fn(bool)> = {
-            let (h, b, sl, sv, p, n) = (
+        let saved: Rc<std::cell::RefCell<String>> = Default::default();
+        // the hold fired (glowing) / the finger is on the tile / where it went down
+        let held = Rc::new(Cell::new(false));
+        let inside = Rc::new(Cell::new(true));
+        let start = Rc::new(Cell::new((0.0f64, 0.0f64)));
+        let timer: Rc<std::cell::RefCell<Option<glib::SourceId>>> = Default::default();
+        let stop_timer = {
+            let timer = timer.clone();
+            move || {
+                if let Some(id) = timer.borrow_mut().take() {
+                    id.remove();
+                }
+            }
+        };
+        let finish: Rc<dyn Fn(bool)> = {
+            let (h, b, sl, sv, p, n, sup) = (
                 held.clone(),
                 button.clone(),
                 sub.clone(),
                 saved.clone(),
                 pages.clone(),
                 nets.clone(),
+                suppress.clone(),
             );
-            std::rc::Rc::new(move |open: bool| {
+            let stop = stop_timer.clone();
+            Rc::new(move |open: bool| {
+                stop();
+                b.remove_css_class("lp-pressing");
                 if !h.replace(false) {
                     return;
                 }
-                b.remove_css_class("lp-pressing");
                 b.remove_css_class("lp-ready");
                 sl.set_text(&sv.borrow());
+                // (the swallowed tap has happened by the time this runs)
+                let sup = sup.clone();
+                let _ = glib::idle_add_local_once(move || sup.set(false));
                 if open {
                     let (p, n) = (p.clone(), n.clone());
                     let _ = glib::idle_add_local_once(move || {
@@ -562,122 +573,113 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
                 }
             })
         };
-        // Follows the finger for the whole touch: a plain event watcher sees
-        // the touch even after the long press has taken it, and it can't be
-        // stopped by other gestures.
-        let track = gtk::EventControllerLegacy::new();
+        // where the finger is, in the tile's own coordinates
+        let pos = {
+            let b = button.clone();
+            move |ev: &gtk::gdk::Event| -> Option<(f64, f64)> {
+                let (x, y) = ev.position()?;
+                let native = b.native()?;
+                let (sx, sy) = native.surface_transform();
+                let p = native.compute_point(
+                    &b,
+                    &gtk::graphene::Point::new((x - sx) as f32, (y - sy) as f32),
+                )?;
+                Some((f64::from(p.x()), f64::from(p.y())))
+            }
+        };
+        let watch = gtk::EventControllerLegacy::new();
+        // (capture: sees the touch before the button does)
+        watch.set_propagation_phase(gtk::PropagationPhase::Capture);
         {
-            let (h, ins, b, sl, sv, f) = (
+            let (h, ins, st, b, sl, sv, f, sup) = (
                 held.clone(),
                 inside.clone(),
+                start.clone(),
                 button.clone(),
                 sub.clone(),
                 saved.clone(),
                 finish.clone(),
+                suppress.clone(),
             );
-            track.connect_event(move |_, ev| {
+            let timer = timer.clone();
+            watch.connect_event(move |_, ev| {
                 use gtk::gdk::EventType as T;
-                let kind_ = ev.event_type();
-                if !h.get()
-                    || !matches!(
-                        kind_,
-                        T::MotionNotify
-                            | T::TouchUpdate
-                            | T::ButtonRelease
-                            | T::TouchEnd
-                            | T::TouchCancel
-                    )
-                {
-                    return glib::Propagation::Proceed;
-                }
-                if kind_ == T::TouchCancel {
-                    f(false);
-                    return glib::Propagation::Proceed;
-                }
-                // where the finger is, in the tile's own coordinates
-                let on = (|| {
-                    let (x, y) = ev.position()?;
-                    let native = b.native()?;
-                    let (sx, sy) = native.surface_transform();
-                    let p = native.compute_point(
-                        &b,
-                        &gtk::graphene::Point::new((x - sx) as f32, (y - sy) as f32),
-                    )?;
-                    let (x, y) = (f64::from(p.x()), f64::from(p.y()));
-                    Some(
-                        x >= 0.0
+                let t = ev.event_type();
+                match t {
+                    T::ButtonPress | T::TouchBegin => {
+                        // a fresh touch: nothing left over from before
+                        f(false);
+                        sup.set(false);
+                        let Some(p) = pos(ev) else {
+                            return glib::Propagation::Proceed;
+                        };
+                        st.set(p);
+                        ins.set(true);
+                        b.add_css_class("lp-pressing");
+                        let (h, b, sl, sv, sup, timer2) = (
+                            h.clone(),
+                            b.clone(),
+                            sl.clone(),
+                            sv.clone(),
+                            sup.clone(),
+                            timer.clone(),
+                        );
+                        let id = glib::timeout_add_local_once(
+                            std::time::Duration::from_millis(500),
+                            move || {
+                                timer2.borrow_mut().take();
+                                h.set(true);
+                                sup.set(true);
+                                b.add_css_class("lp-ready");
+                                *sv.borrow_mut() = sl.text().to_string();
+                                sl.set_text("Edit settings");
+                            },
+                        );
+                        if let Some(old) = timer.borrow_mut().replace(id) {
+                            old.remove();
+                        }
+                    }
+                    T::MotionNotify | T::TouchUpdate => {
+                        let Some((x, y)) = pos(ev) else {
+                            return glib::Propagation::Proceed;
+                        };
+                        if !h.get() {
+                            // moved before the hold fired: it's a swipe, not a hold
+                            let (sx, sy) = st.get();
+                            if timer.borrow().is_some() && (x - sx).hypot(y - sy) > 12.0 {
+                                f(false);
+                            }
+                            return glib::Propagation::Proceed;
+                        }
+                        let on = x >= 0.0
                             && y >= 0.0
                             && x <= f64::from(b.width())
-                            && y <= f64::from(b.height()),
-                    )
-                })()
-                .unwrap_or(ins.get());
-                if matches!(kind_, T::ButtonRelease | T::TouchEnd) {
-                    f(on);
-                    return glib::Propagation::Proceed;
-                }
-                if on != ins.replace(on) {
-                    if on {
-                        b.add_css_class("lp-ready");
-                        sl.set_text("Edit settings");
-                    } else {
-                        b.remove_css_class("lp-ready");
-                        sl.set_text(&sv.borrow());
+                            && y <= f64::from(b.height());
+                        if on != ins.replace(on) {
+                            if on {
+                                b.add_css_class("lp-ready");
+                                sl.set_text("Edit settings");
+                            } else {
+                                b.remove_css_class("lp-ready");
+                                sl.set_text(&sv.borrow());
+                            }
+                        }
                     }
-                }
-                glib::Propagation::Proceed
-            });
-        }
-        // the long press also "ends" when the finger moves a little (GTK
-        // stops counting it as a long press) - that's not letting go, so the
-        // watcher above decides. A long press that never got held just loses
-        // its outline.
-        let (b, f, ins, h) = (button.clone(), finish.clone(), inside.clone(), held.clone());
-        lp.connect_end(move |g, _| {
-            if !h.get() {
-                b.remove_css_class("lp-pressing");
-                return;
-            }
-            // (backup in case the watcher missed the release)
-            let up = matches!(
-                g.current_event().map(|e| e.event_type()),
-                Some(gtk::gdk::EventType::ButtonRelease) | Some(gtk::gdk::EventType::TouchEnd)
-            );
-            if up {
-                let (f, ins) = (f.clone(), ins.clone());
-                let _ = glib::idle_add_local_once(move || f(ins.get()));
-            }
-        });
-        {
-            let (f, lp) = (finish.clone(), lp.clone());
-            holds.borrow_mut().push(Rc::new(move || {
-                f(false);
-                lp.reset();
-            }));
-        }
-        // A new touch always starts a fresh hold: whatever was left of an
-        // earlier one (a touch GTK lost track of) is dropped first - so the
-        // long press always works, without closing the pull-down.
-        let fresh = gtk::EventControllerLegacy::new();
-        fresh.set_propagation_phase(gtk::PropagationPhase::Capture);
-        {
-            let (f, lp, h) = (finish.clone(), lp.clone(), held.clone());
-            fresh.connect_event(move |_, ev| {
-                use gtk::gdk::EventType as T;
-                if matches!(ev.event_type(), T::ButtonPress | T::TouchBegin) {
-                    if h.get() {
-                        f(false);
+                    T::ButtonRelease | T::TouchEnd => {
+                        let on = h.get() && ins.get();
+                        f(on);
                     }
-                    if lp.is_active() {
-                        lp.reset();
-                    }
+                    T::TouchCancel => f(false),
+                    _ => {}
                 }
                 glib::Propagation::Proceed
             });
         }
-        button.add_controller(fresh);
-        button.add_controller(lp);
-        button.add_controller(track);
+        {
+            let f = finish.clone();
+            holds.borrow_mut().push(Rc::new(move || f(false)));
+        }
+        button.add_controller(watch);
     }
     let p = pages.clone();
     shell

@@ -4,6 +4,8 @@ The version is in `Cargo.toml` and shows in Settings → About.
 
 ## 0.6.15
 
+- Fixed the build: saved Wi-Fi settings are read with VariantDict
+  (glib's Variant has no lookup_value).
 - On a window manager without the secure session lock (not sway), a notice
   shows for 10 seconds after logging in: "This screen can't be locked
   securely here (the window manager has no session lock - use sway)". Once

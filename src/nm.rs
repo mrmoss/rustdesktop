@@ -140,13 +140,11 @@ fn saved_wifi(bus: &gio::DBusConnection, ssid: &str) -> Vec<String> {
             {
                 return false;
             }
-            let is_wifi = settings
-                .lookup_value("connection", None)
+            let is_wifi = section(&settings, "connection")
                 .and_then(|c| c.lookup_value("type", Some(glib::VariantTy::STRING)))
                 .and_then(|t| t.str().map(|s| s == "802-11-wireless"))
                 .unwrap_or(false);
-            let same_name = settings
-                .lookup_value("802-11-wireless", None)
+            let same_name = section(&settings, "802-11-wireless")
                 .and_then(|w| w.lookup_value("ssid", Some(glib::VariantTy::BYTE_STRING)))
                 .map(|v| v.data() == ssid.as_bytes())
                 .unwrap_or(false);
@@ -154,6 +152,16 @@ fn saved_wifi(bus: &gio::DBusConnection, ssid: &str) -> Vec<String> {
         })
         .map(|p| p.as_str().to_string())
         .collect()
+}
+
+/// One section ("connection", "802-11-wireless"...) of a saved profile's
+/// settings (a{sa{sv}}, already type-checked), to look values up in.
+fn section(settings: &Variant, name: &str) -> Option<glib::VariantDict> {
+    (0..settings.n_children()).find_map(|k| {
+        let entry = settings.child_value(k);
+        (entry.child_value(0).str() == Some(name))
+            .then(|| glib::VariantDict::new(Some(&entry.child_value(1))))
+    })
 }
 
 /// Forget the saved Wi-Fi network(s) for this network name (Wi-Fi only).

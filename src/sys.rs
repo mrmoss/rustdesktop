@@ -489,7 +489,12 @@ pub fn wifi_disconnect(net: &WifiNet) {
 }
 
 pub fn wifi_forget(net: &WifiNet) {
-    let _ = run_capture(15, "nmcli", &["connection", "delete", "id", &net.ssid]);
+    wifi_forget_by_name(&net.ssid);
+}
+
+/// Remove a saved network by name (nothing happens if there is none).
+pub fn wifi_forget_by_name(ssid: &str) {
+    let _ = run_capture(15, "nmcli", &["connection", "delete", "id", ssid]);
 }
 
 #[derive(Clone, Debug)]

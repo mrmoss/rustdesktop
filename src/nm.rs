@@ -66,8 +66,13 @@ fn wifi_device(bus: &gio::DBusConnection) -> Result<ObjectPath, String> {
     devices
         .into_iter()
         .find(|d| {
-            prop(bus, d.as_str(), "org.freedesktop.NetworkManager.Device", "DeviceType")
-                .and_then(|v| v.get::<u32>())
+            prop(
+                bus,
+                d.as_str(),
+                "org.freedesktop.NetworkManager.Device",
+                "DeviceType",
+            )
+            .and_then(|v| v.get::<u32>())
                 == Some(DEVICE_TYPE_WIFI)
         })
         .ok_or_else(|| "no Wi-Fi device".to_string())
@@ -79,7 +84,10 @@ fn security(kind: &str, password: &str) -> Result<HashMap<String, Variant>, Stri
     let has = |w: &str| kind.split_whitespace().any(|t| t == w);
     let mut s = HashMap::new();
     if has("802.1X") {
-        return Err("this network needs a user name as well (802.1X), which RustTouch can't set up yet".into());
+        return Err(
+            "this network needs a user name as well (802.1X), which RustTouch can't set up yet"
+                .into(),
+        );
     }
     if has("WEP") {
         s.insert("key-mgmt".into(), "none".to_variant());
@@ -124,7 +132,14 @@ pub fn connect_with_password(ssid: &str, kind: &str, password: &str) -> Result<(
 
     let root = ObjectPath::try_from("/".to_string()).map_err(|_| "bad path")?;
     let args = (settings, device, root).to_variant();
-    let r = call(&bus, NM_PATH, NM, "AddAndActivateConnection", Some(&args), 30_000)?;
+    let r = call(
+        &bus,
+        NM_PATH,
+        NM,
+        "AddAndActivateConnection",
+        Some(&args),
+        30_000,
+    )?;
     let (saved, active): (ObjectPath, ObjectPath) =
         r.get().ok_or("NetworkManager gave an odd answer")?;
 

@@ -24,32 +24,40 @@ The version is in `Cargo.toml` and shows in Settings → About.
   in, unplugging and the percentage show right away (it waited for the full
   status check, which could stop updating after the screen had been off).
 
+### Security (fixes for the security review)
+
+- Lock screen: now a real session lock (ext-session-lock-v1, through
+  gtk4-session-lock) wherever the window manager offers one, so a crash or
+  kill no longer unlocks the screen - the window manager keeps it covered.
+  The session starts RustTouch again if it crashes, and a restarted
+  RustTouch locks again straight away (a "locked" marker in the private
+  runtime folder; a new login clears it). Gives up after 5 crashes in a
+  minute; stops when you log out. Without the protocol it falls back to the
+  old plain cover and the log says WARNING.
+- Wi-Fi passwords: sent to NetworkManager over its D-Bus API (new
+  `src/nm.rs`), never on a command line where `/proc/<pid>/cmdline` shows
+  them. A network saved earlier under the same name is replaced; a failed
+  join removes the new one again.
+- PAM: only a hidden password prompt gets the password; a visible prompt
+  (user name, one-time code) fails the check instead. Allocation failures
+  are handled, and copies of the password are wiped after use.
+- Runtime folder: never a shared folder. It's `$XDG_RUNTIME_DIR/rusttouch`
+  when that's a private folder of yours, otherwise `~/.cache/rusttouch-run`
+  (it used to fall back to /tmp). Made with mode 0700 and checked to be a
+  real folder (not a link) owned by you; the control pipe is made with mode
+  0600 and checked the same way. The session scripts use the same folder.
+- README: a Security section.
+- Builds on gtk4 0.11 (the 0.6.8 upgrade) - gtk4-session-lock 0.4.
+
 ## 0.6.8
 
-Security review follow-up. Three of the four findings were already fixed in
-the code (the review looked at an older copy); the fourth is fixed here,
-plus two gaps found while checking:
-
-- Lock screen: already a real session lock (ext-session-lock-v1) wherever
-  the window manager offers one, so a crash or kill doesn't unlock the
-  screen. Two gaps fixed:
-  - the session now starts RustTouch again if it crashes (it used to just
-    stay gone - with the screen safely locked but no way to unlock it);
-  - the "it was locked" marker is now actually read: a restarted RustTouch
-    locks again straight away and shows the unlock screen.
-  A new login starts with the marker cleared. Gives up after 5 crashes in a
-  minute; stops when you log out.
-- Wi-Fi passwords: already sent over NetworkManager's D-Bus API, never on
-  a command line.
-- PAM: already only answers hidden password prompts (a visible prompt fails
-  the check), handles allocation failures and wipes the password copies.
-- Runtime folder: never a shared folder any more. It's
-  `$XDG_RUNTIME_DIR/rusttouch` when that's a private folder of yours,
-  otherwise `~/.cache/rusttouch-run` (it used to fall back to /tmp). The
-  folder is made with mode 0700 and checked to be a real folder (not a
-  link) owned by you; the control pipe is made with mode 0600 and checked
-  the same way. The session scripts use the same folder.
-- README: a Security section.
+- Builds again with gtk4 0.11 / gtk4-layer-shell 0.8. `DesktopAppInfo` moved
+  out of `gio` into the new `gio-unix` crate (added as a dependency), and the
+  Slide widget now lists the interfaces every GTK widget has
+  (`Accessible`, `Buildable`, `ConstraintTarget`), which gtk4 0.11 requires.
+- Quieted the `signal_subscribe` deprecation warnings in the tray and the
+  screen-saver inhibitor. Its replacement drops the subscription when its
+  handle is dropped, and these need to last the whole session.
 
 ## 0.6.7
 

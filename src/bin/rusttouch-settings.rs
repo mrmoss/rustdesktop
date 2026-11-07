@@ -1048,7 +1048,8 @@ fn open_picker(
     {
         let (b, close) = (backdrop.clone(), close.clone());
         tap.connect_released(move |_, _, x, y| {
-            if b.pick(x, y, gtk::PickFlags::DEFAULT).as_ref() == Some(b.upcast_ref::<gtk::Widget>()) {
+            if b.pick(x, y, gtk::PickFlags::DEFAULT).as_ref() == Some(b.upcast_ref::<gtk::Widget>())
+            {
                 close();
             }
         });
@@ -1080,6 +1081,350 @@ fn open_picker(
             }
         });
     }
+}
+
+/// Swatch rows: mark the tapped one as selected and save.
+fn select_on_click(buttons: &[gtk::Button], save: Rc<dyn Fn(usize)>) {
+    let all: Rc<Vec<gtk::Button>> = Rc::new(buttons.to_vec());
+    for (i, b) in buttons.iter().enumerate() {
+        let (all, save) = (all.clone(), save.clone());
+        b.connect_clicked(move |_| {
+            for (j, o) in all.iter().enumerate() {
+                if i == j {
+                    o.add_css_class("selected");
+                } else {
+                    o.remove_css_class("selected");
+                }
+            }
+            save(i);
+        });
+    }
+}
+
+#[allow(deprecated)]
+fn choose_image(ctx: &Rc<Ctx>, label: &gtk::Label, key: &'static str) {
+    let dialog = gtk::FileChooserNative::new(
+        Some("Choose a picture"),
+        Some(&ctx.window),
+        gtk::FileChooserAction::Open,
+        Some("Choose"),
+        Some("Cancel"),
+    );
+    let filter = gtk::FileFilter::new();
+    filter.add_mime_type("image/*");
+    filter.set_name(Some("Images"));
+    dialog.add_filter(&filter);
+    let (c, l) = (ctx.clone(), label.clone());
+    dialog.connect_response(move |d, resp| {
+        if resp == gtk::ResponseType::Accept {
+            if let Some(path) = d.file().and_then(|f| f.path()) {
+                let p = path.to_string_lossy().into_owned();
+                config::set(key, &p);
+                l.set_text(&p);
+            }
+        }
+        c.chooser.borrow_mut().take();
+    });
+    dialog.show();
+    *ctx.chooser.borrow_mut() = Some(dialog);
+}
+
+const SCREEN_OFF: &[(&str, &str)] = &[
+    ("0", "Never"),
+    ("30", "30 seconds"),
+    ("60", "1 minute"),
+    ("120", "2 minutes"),
+    ("300", "5 minutes"),
+    ("600", "10 minutes"),
+    ("1800", "30 minutes"),
+];
+
+const SLEEP: &[(&str, &str)] = &[
+    ("0", "Never"),
+    ("300", "5 minutes"),
+    ("600", "10 minutes"),
+    ("900", "15 minutes"),
+    ("1800", "30 minutes"),
+    ("3600", "1 hour"),
+];
+
+fn power(_: &Rc<Ctx>) -> gtk::Widget {
+    let cfg = Config::load();
+    page(&[
+        group(
+            "When idle",
+            &[
+                choice_row(
+                    &cfg,
+                    "screen_off_after",
+                    "Turn screen off after",
+                    None,
+                    SCREEN_OFF,
+                ),
+                switch_row(
+                    &cfg,
+                    "lock_on_screen_off",
+                    "Lock when the screen turns off",
+                    None,
+                ),
+                choice_row(&cfg, "sleep_after", "Sleep after", None, SLEEP),
+            ],
+        ),
+        group(
+            "Power button",
+            &[
+                choice_row(&cfg, "power_button", "Press", None, config::POWER_ACTIONS),
+                choice_row(
+                    &cfg,
+                    "power_button_hold",
+                    "Press and hold (if supported)",
+                    Some("Many laptops only report the button once it's released, so a hold can't be seen"),
+                    config::POWER_ACTIONS,
+                ),
+                choice_row(
+                    &cfg,
+                    "power_button_double",
+                    "Double press (if supported)",
+                    Some("Not every power button reports quick repeats. Anything but \"Do nothing\" makes a single press wait 0.3s"),
+                    config::POWER_ACTIONS,
+                ),
+            ],
+        ),
+        note(
+            "When the screen is off, any press of the power button turns it back on. \
+             Power button handling needs the udev rule from install.sh (then reboot); \
+             without rusttouch running, the button sleeps.",
+        ),
+    ])
+}
+
+const KB_HEIGHTS: &[(&str, &str)] = &[
+    ("auto", "Automatic (300 px)"),
+    ("220", "Short (220 px)"),
+    ("260", "260 px"),
+    ("300", "Normal (300 px)"),
+    ("340", "Tall (340 px)"),
+    ("400", "Very tall (400 px)"),
+];
+
+const KB_HEIGHTS_LANDSCAPE: &[(&str, &str)] = &[
+    ("auto", "Automatic (260 px)"),
+    ("180", "Short (180 px)"),
+    ("220", "220 px"),
+    ("260", "Normal (260 px)"),
+    ("300", "Tall (300 px)"),
+    ("340", "Very tall (340 px)"),
+];
+
+const KB_FONTS: &[(&str, &str)] = &[
+    ("auto", "Automatic"),
+    ("14", "Small"),
+    ("18", "Medium"),
+    ("22", "Large"),
+    ("26", "Extra large"),
+];
+
+const KB_ROUNDING: &[(&str, &str)] = &[
+    ("auto", "Automatic (square)"),
+    ("0", "Square"),
+    ("4", "Slightly rounded"),
+    ("8", "Rounded"),
+    ("14", "Very rounded"),
+];
+
+const KB_STYLES: &[(&str, &str)] = &[
+    ("theme", "Match RustTouch (theme + accent)"),
+    ("wvkbd", "Classic dark keys"),
+];
+
+fn keyboard(_: &Rc<Ctx>) -> gtk::Widget {
+    let cfg = Config::load();
+    page(&[
+        group(
+            "On-screen keyboard",
+            &[
+                switch_row(
+                    &cfg,
+                    "keyboard_auto",
+                    "Show automatically",
+                    Some("Pop up when you tap a text field"),
+                ),
+                choice_row(
+                    &cfg,
+                    "cursor_blink",
+                    "Text cursor blinking",
+                    Some("In RustTouch and in apps"),
+                    &[
+                        ("standard", "Standard"),
+                        ("slow", "Slow"),
+                        ("fast", "Fast"),
+                        ("off", "Off (steady)"),
+                    ],
+                ),
+                switch_row(
+                    &cfg,
+                    "keyboard_resize_apps",
+                    "Make room for the keyboard",
+                    Some("Apps shrink to fit above it, so what you type into stays visible"),
+                ),
+            ],
+        ),
+        group("Preview", &[keyboard_preview()]),
+        group(
+            "Size & look",
+            &[
+                choice_row(
+                    &cfg,
+                    "keyboard_height",
+                    "Height (portrait)",
+                    None,
+                    KB_HEIGHTS,
+                ),
+                choice_row(
+                    &cfg,
+                    "keyboard_height_landscape",
+                    "Height (landscape)",
+                    None,
+                    KB_HEIGHTS_LANDSCAPE,
+                ),
+                choice_row(
+                    &cfg,
+                    "keyboard_landscape_layout",
+                    "Layout (landscape)",
+                    None,
+                    &[
+                        ("wide", "Wide: every key on one page"),
+                        ("compact", "Compact: like portrait"),
+                    ],
+                ),
+                choice_row(&cfg, "keyboard_font_size", "Key labels", None, KB_FONTS),
+                choice_row(&cfg, "keyboard_rounding", "Key shape", None, KB_ROUNDING),
+                choice_row(&cfg, "keyboard_style", "Colors", None, KB_STYLES),
+            ],
+        ),
+        note(
+            "The RustTouch keyboard is used everywhere except the lock screen. Changes \
+             apply right away. ⌨ at the bottom right of the button bar opens it by hand; \
+             Back (⌄) closes it. ⌨→ switches to symbols and 🙂; Ctr / Alt / Sup work for \
+             shortcuts (tap one, then the key); hold a key to repeat it.",
+        ),
+    ])
+}
+
+fn network(_: &Rc<Ctx>) -> gtk::Widget {
+    let cfg = Config::load();
+    let more = gtk::Button::with_label("Open");
+    more.connect_clicked(|_| {
+        for (cmd, args) in [
+            ("nm-connection-editor", &[][..]),
+            ("gnome-control-center", &["wifi"][..]),
+        ] {
+            let ok = std::process::Command::new(cmd)
+                .args(args)
+                .env("XDG_CURRENT_DESKTOP", "GNOME")
+                .spawn()
+                .is_ok();
+            if ok {
+                break;
+            }
+        }
+    });
+    page(&[group(
+        "Network",
+        &[
+            switch_row(&cfg, "wifi", "Wi-Fi", None),
+            switch_row(&cfg, "bluetooth", "Bluetooth", None),
+            row("Wi-Fi networks & passwords", None, &more),
+        ],
+    )])
+}
+
+fn windows(_: &Rc<Ctx>) -> gtk::Widget {
+    let cfg = Config::load();
+    let on_sway = std::env::var_os("SWAYSOCK").is_some();
+    let status = if on_sway {
+        "Split screen is on (running on sway)."
+    } else {
+        "Split screen needs sway: sudo apt install sway, pick Automatic or sway below, then log out and back in."
+    };
+    page(&[
+        group(
+            "Window manager",
+            &[choice_row(
+                &cfg,
+                "compositor",
+                "Compositor",
+                Some("Takes effect next login"),
+                &[
+                    ("auto", "Automatic (sway if installed)"),
+                    ("sway", "sway - split screen"),
+                    ("phoc", "phoc - phone style, one app at a time"),
+                    ("labwc", "labwc - desktop style"),
+                ],
+            )],
+        ),
+        note(status),
+        group(
+            "Split screen",
+            &[
+                choice_row(
+                    &cfg,
+                    "window_mode",
+                    "New apps",
+                    None,
+                    &[
+                        ("fullscreen", "Open full screen (tablet)"),
+                        ("tile", "Open next to what's showing (desktop)"),
+                    ],
+                ),
+                choice_row(
+                    &cfg,
+                    "split_direction",
+                    "Split puts apps",
+                    None,
+                    &[
+                        ("auto", "Automatic (by screen shape)"),
+                        ("side", "Side by side"),
+                        ("stacked", "Top and bottom"),
+                    ],
+                ),
+            ],
+        ),
+        group(
+            "How to use split screen",
+            &[{
+                let l = gtk::Label::new(Some(
+                    "• Recents (■) shows window groups: apps that share the screen are one card.\n\
+                     • Hold a window in a card and drag it onto the edge of another window (in the \
+                     same group or another one) to put it on that side, or onto empty space to give \
+                     it a group of its own.\n\
+                     • ✕ on a window closes just that window; flick a card up to close the whole group.\n\
+                     • Drag the handle on the line between apps to resize them; tap it to arrange \
+                     on the screen itself (Flip, Full, Close).",
+                ));
+                l.set_wrap(true);
+                l.set_xalign(0.0);
+                l.add_css_class("row");
+                l.upcast()
+            }],
+        ),
+    ])
+}
+
+fn about(_: &Rc<Ctx>) -> gtk::Widget {
+    let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/<uid>".into());
+    let text = format!(
+        "RustTouch {}\n\nSettings file:\n{}\n\nLog:\n{}/rusttouch/rusttouch.log",
+        env!("CARGO_PKG_VERSION"),
+        config::path().display(),
+        runtime
+    );
+    let l = gtk::Label::new(Some(&text));
+    l.set_selectable(true);
+    l.set_wrap(true);
+    l.set_xalign(0.0);
+    l.add_css_class("row");
+    page(&[group("About", &[l.upcast()])])
 }
 
 // ------------------------------------------------------------ displays

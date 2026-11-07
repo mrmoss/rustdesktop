@@ -27,6 +27,7 @@ mod kbd;
 mod layer;
 mod lock;
 mod netlist;
+mod nm;
 mod osd;
 mod osk;
 mod pam;

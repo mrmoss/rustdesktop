@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use gtk::gio;
-use gtk::glib::{self, variant::ObjectPath, ToVariant, Variant};
+use gtk::glib::{self, prelude::ToVariant, variant::ObjectPath, Variant};
 
 const NM: &str = "org.freedesktop.NetworkManager";
 const NM_PATH: &str = "/org/freedesktop/NetworkManager";

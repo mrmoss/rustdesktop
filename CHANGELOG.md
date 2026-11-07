@@ -2,6 +2,16 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.8
+
+- Builds again with gtk4 0.11 / gtk4-layer-shell 0.8. `DesktopAppInfo` moved
+  out of `gio` into the new `gio-unix` crate (added as a dependency), and the
+  Slide widget now lists the interfaces every GTK widget has
+  (`Accessible`, `Buildable`, `ConstraintTarget`), which gtk4 0.11 requires.
+- Quieted the `signal_subscribe` deprecation warnings in the tray and the
+  screen-saver inhibitor. Its replacement drops the subscription when its
+  handle is dropped, and these need to last the whole session.
+
 ## 0.6.7
 
 - Wi-Fi/Bluetooth tiles: no more flash of the accent color in the corners

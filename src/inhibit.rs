@@ -89,6 +89,9 @@ fn serve(conn: &gio::DBusConnection) {
         }
     }
     // apps that quit without un-inhibiting
+    // subscribe_to_signal() unsubscribes when its handle drops; these are meant to
+    // live for the whole session, so keep the old call.
+    #[allow(deprecated)]
     let _ = conn.signal_subscribe(
         Some("org.freedesktop.DBus"),
         Some("org.freedesktop.DBus"),

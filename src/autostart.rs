@@ -94,7 +94,7 @@ pub fn list(all: bool) -> Vec<Entry> {
         {
             continue;
         }
-        let applies = gio::DesktopAppInfo::from_filename(&path)
+        let applies = gio_unix::DesktopAppInfo::from_filename(&path)
             .map(|i| i.shows_in(None))
             .unwrap_or(false);
         if !all && !applies {
@@ -149,7 +149,7 @@ pub fn start_all(ctx: Option<&gio::AppLaunchContext>) {
         .into_iter()
         .filter(|e| starts_in_rusttouch(&cfg, e))
     {
-        match gio::DesktopAppInfo::from_filename(&e.path) {
+        match gio_unix::DesktopAppInfo::from_filename(&e.path) {
             Some(info) => {
                 if let Err(err) = info.launch(&[], ctx) {
                     eprintln!("rusttouch: autostart {} failed: {err}", e.id);
@@ -177,7 +177,7 @@ pub fn set_enabled(e: &Entry, on: bool) -> Result<(), String> {
 
 /// Start an installed app at login (copies its .desktop file).
 pub fn add_app(app_id: &str) -> Result<(), String> {
-    let info = gio::DesktopAppInfo::new(app_id).ok_or("app not found")?;
+    let info = gio_unix::DesktopAppInfo::new(app_id).ok_or("app not found")?;
     let src = info.filename().ok_or("app has no file")?;
     let kf = load(&src).ok_or("can't read app")?;
     kf.set_boolean(GROUP, ENABLED, true);

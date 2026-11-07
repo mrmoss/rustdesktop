@@ -24,7 +24,7 @@ pub fn icon_for_app_id(app_id: &str) -> Option<gio::Icon> {
         format!("{app_id}.desktop"),
         format!("{}.desktop", app_id.to_lowercase()),
     ] {
-        if let Some(info) = gio::DesktopAppInfo::new(&id) {
+        if let Some(info) = gio_unix::DesktopAppInfo::new(&id) {
             if let Some(i) = info.icon() {
                 return Some(i);
             }

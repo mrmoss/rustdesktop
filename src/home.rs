@@ -45,7 +45,7 @@ enum Dragged {
 }
 
 fn app(id: &str) -> Option<gio::AppInfo> {
-    gio::DesktopAppInfo::new(id).map(|d| d.upcast())
+    gio_unix::DesktopAppInfo::new(id).map(|d| d.upcast())
 }
 
 // Layouts are saved per orientation ("home_apps" = portrait,

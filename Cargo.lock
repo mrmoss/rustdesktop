@@ -666,7 +666,7 @@ dependencies = [
 
 [[package]]
 name = "rusttouch"
-version = "0.6.23"
+version = "0.6.25"
 dependencies = [
  "gio-unix",
  "gtk4",

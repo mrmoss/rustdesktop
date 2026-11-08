@@ -402,6 +402,20 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         });
     }
 
+    // Escape closes the menus. Recents (and the window arranger) never take
+    // the keyboard, so on sway Escape is bound there while one shows.
+    let _ = crate::sway::available() && crate::sway::run("unbindsym Escape");
+    for o in ALL {
+        shell.sheet(o).on_progress(move |p| {
+            if p <= 0.001 {
+                // (after the sheet has finished closing)
+                let _ = glib::idle_add_local_once(sync_escape);
+            } else {
+                sync_escape();
+            }
+        });
+    }
+
     // a sheet's keyboard goes away with the sheet
     for o in [Overlay::Drawer, Overlay::Quick] {
         let s = shell.clone();
@@ -777,7 +791,9 @@ fn handle_event(shell: &Shell, ev: Event) {
             shell.last_mouse_click.set(glib::monotonic_time());
             // clicking with a mouse: you have one, so no on-screen keyboard
             // (clicks on the on-screen keyboard itself don't count)
-            if shell.cfg().on("keyboard_hide_on_mouse") && shell.osk_visible.get() {
+            // (checked a moment later: the click may reach us before or
+            // after the text box says it's active)
+            if shell.cfg().on("keyboard_hide_on_mouse") {
                 let s = shell.clone();
                 let _ = glib::timeout_add_local_once(Duration::from_millis(120), move || {
                     if !crate::kbd::clicked_recently() && s.osk_visible.get() {
@@ -887,9 +903,9 @@ fn text_input(shell: &Shell, active: bool) {
     let now = glib::monotonic_time();
     if active {
         shell.last_activate.set(now);
-        // a text box clicked with the mouse: no on-screen keyboard
-        if shell.cfg().on("keyboard_hide_on_mouse")
-            && now - shell.last_mouse_click.get() < 1_000_000
+        // a text box clicked with the mouse: no on-screen keyboard (only
+        // right after the click - a tap on it later brings the keyboard)
+        if shell.cfg().on("keyboard_hide_on_mouse") && now - shell.last_mouse_click.get() < 500_000
         {
             return;
         }
@@ -1233,8 +1249,38 @@ fn set_cursor_all() {
     }
 }
 
+thread_local! {
+    static ESCAPE_BOUND: Cell<bool> = const { Cell::new(false) };
+}
+
+/// While a menu, recents or the window arranger shows, sway sends Escape to
+/// us (`rusttouch --do close-menus`); otherwise Escape is left to the apps.
+pub fn sync_escape() {
+    if !crate::sway::available() {
+        return;
+    }
+    let Some(s) = SELF.with(|me| me.borrow().as_ref().and_then(|w| w.upgrade())) else {
+        return;
+    };
+    let want = (s.any_showing() || crate::tiling::arrange_open()) && !s.is_locked();
+    if ESCAPE_BOUND.with(|b| b.replace(want)) == want {
+        return;
+    }
+    if want {
+        let me = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.to_str().map(str::to_string))
+            .unwrap_or_else(|| "rusttouch".into());
+        crate::sway::run(&format!("bindsym Escape exec '{me}' --do close-menus"));
+    } else {
+        crate::sway::run("unbindsym Escape");
+    }
+}
+
 fn add_escape(shell: &Shell, w: &gtk::ApplicationWindow) {
     let k = gtk::EventControllerKey::new();
+    // capture: the drawer's search box would keep Escape for itself
+    k.set_propagation_phase(gtk::PropagationPhase::Capture);
     let s = shell.clone();
     k.connect_key_pressed(move |_, key, _, _| {
         if key == gdk::Key::Escape && s.any_open() {
@@ -2238,6 +2284,7 @@ impl ShellInner {
     /// manager - nothing is locked, a warning shows, and the screen is kept
     /// on so you see it. Callers must then not turn the screen off or sleep.
     pub fn lock(&self) -> bool {
+        crate::tiling::close_arrange();
         self.hide_all();
         if self.osk_visible.get() {
             self.show_keyboard(false); // the lock screen has its own keyboard
@@ -2645,6 +2692,11 @@ pub fn do_action(shell: &Shell, name: &str) {
         "quick" => shell.toggle(Overlay::Quick),
         "next-group" => cycle(shell, true),
         "prev-group" => cycle(shell, false),
+        "close-menus" => {
+            crate::tiling::close_arrange();
+            shell.hide_all();
+            sync_escape();
+        }
         "last-group" => {
             shell.hide_all();
             switch_to_last(shell);

@@ -48,6 +48,8 @@ struct Ctx {
     title: gtk::Label,
     /// keeps a file chooser alive while it is open
     chooser: RefCell<Option<gtk::FileChooserNative>>,
+    /// the page last opened (the mouse's forward button goes back to it)
+    last_page: Cell<Option<usize>>,
 }
 
 fn build(app: &gtk::Application) {
@@ -142,6 +144,7 @@ fn build(app: &gtk::Application) {
         back: back.clone(),
         title,
         chooser: RefCell::new(None),
+        last_page: Cell::new(None),
     });
 
     stack.add_named(&main_page(&ctx), Some("main"));
@@ -156,14 +159,46 @@ fn build(app: &gtk::Application) {
         let back = key == gdk::Key::Escape
             || key == gdk::Key::Back
             || (key == gdk::Key::Left && mods.contains(gdk::ModifierType::ALT_MASK));
-        if back && c.back.is_visible() {
+        let forward = key == gdk::Key::Forward
+            || (key == gdk::Key::Right && mods.contains(gdk::ModifierType::ALT_MASK));
+        if back && close_picker() {
+            // (an open choice list goes first)
+            glib::Propagation::Stop
+        } else if back && c.back.is_visible() {
             go_main(&c);
+            glib::Propagation::Stop
+        } else if forward && !c.back.is_visible() {
+            if let Some(i) = c.last_page.get() {
+                open_page(&c, i);
+            }
             glib::Propagation::Stop
         } else {
             glib::Propagation::Proceed
         }
     });
     window.add_controller(keys);
+
+    // the mouse's back (8) and forward (9) side buttons
+    let side = gtk::GestureClick::new();
+    side.set_button(0);
+    side.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let c = ctx.clone();
+    side.connect_pressed(move |g, _, _, _| match g.current_button() {
+        8 => {
+            if !close_picker() && c.back.is_visible() {
+                go_main(&c);
+            }
+        }
+        9 => {
+            if !c.back.is_visible() {
+                if let Some(i) = c.last_page.get() {
+                    open_page(&c, i);
+                }
+            }
+        }
+        _ => {}
+    });
+    window.add_controller(side);
 
     window.present();
 }
@@ -620,6 +655,7 @@ fn open_page(ctx: &Rc<Ctx>, i: usize) {
     ctx.stack.set_visible_child_name("page");
     ctx.back.set_visible(true);
     ctx.title.set_text(name);
+    ctx.last_page.set(Some(i));
 }
 
 // ------------------------------------------------------------ building blocks
@@ -924,6 +960,19 @@ fn theme_row(cfg: &Config) -> gtk::Widget {
 thread_local! {
     /// covers the whole window: choice lists open on top of it
     static HOST: RefCell<Option<gtk::Overlay>> = const { RefCell::new(None) };
+    /// closes the choice list that's open, if any
+    static PICKER_CLOSE: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+}
+
+/// Close the open choice list. False: none was open.
+fn close_picker() -> bool {
+    match PICKER_CLOSE.with(|p| p.borrow_mut().take()) {
+        Some(f) => {
+            f();
+            true
+        }
+        None => false,
+    }
 }
 
 /// A choice: a button showing what's chosen. Tapping it opens the whole list
@@ -998,11 +1047,13 @@ fn open_picker(
     let close: Rc<dyn Fn()> = {
         let (host, backdrop) = (host.clone(), backdrop.clone());
         Rc::new(move || {
+            PICKER_CLOSE.with(|p| p.borrow_mut().take());
             if backdrop.parent().is_some() {
                 host.remove_overlay(&backdrop);
             }
         })
     };
+    PICKER_CLOSE.with(|p| *p.borrow_mut() = Some(close.clone()));
     let mut chosen_row: Option<gtk::Button> = None;
     for (i, text) in labels.iter().enumerate() {
         let row = gtk::Button::new();

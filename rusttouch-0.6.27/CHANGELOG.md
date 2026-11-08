@@ -2,6 +2,21 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.27
+
+- Escape closes the app drawer, the pull-down, recents and the window
+  arranger (on sway, Escape is only taken while one of them shows).
+- The Windows/Super key on its own opens recents (Super + another key
+  still does that key's job).
+- Settings: Escape and the mouse's back button go back (closing an open
+  choice list first); the mouse's forward button goes forward again.
+- Mouse: dragging a window in the window arranger, or an icon or card,
+  works right away with the mouse - no press-and-hold first, just like
+  touch. Recents no longer drag-scrolls with the mouse (it got in the way).
+- Keyboard: clicking a text box with the mouse hides the on-screen keyboard
+  even if a tap had brought it up; tapping a text box after clicking it
+  brings the keyboard back sooner (half a second after a click).
+
 ## 0.6.26
 
 - Mouse: the pointer stays on the main screen. Other screens only show a

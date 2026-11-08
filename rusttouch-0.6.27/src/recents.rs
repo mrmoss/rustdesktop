@@ -71,7 +71,6 @@ pub fn build(shell: &Shell) -> gtk::Box {
         .vscrollbar_policy(gtk::PolicyType::Never)
         .vexpand(true)
         .build();
-    crate::gestures::mouse_drag_scroll(&scroll);
 
     let empty = gtk::Label::new(None);
     empty.add_css_class("hint");

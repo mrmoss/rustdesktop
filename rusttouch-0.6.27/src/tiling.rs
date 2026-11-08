@@ -848,6 +848,7 @@ pub fn arrange(shell: &Shell) {
     w.set_child(Some(&arrange_content(shell, &scr)));
     w.present();
     STATE.with(|s| s.borrow_mut().arrange = Some(w));
+    shell::sync_escape();
     set_layout(shell, Vec::new(), Vec::new(), Rect::default()); // handles would sit on top
 }
 
@@ -856,8 +857,13 @@ pub fn close_arrange() -> bool {
     let had = w.is_some();
     if let Some(w) = w {
         w.destroy();
+        shell::sync_escape();
     }
     had
+}
+
+pub fn arrange_open() -> bool {
+    STATE.with(|s| s.borrow().arrange.is_some())
 }
 
 fn rearrange_soon(shell: &Shell) {

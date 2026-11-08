@@ -187,6 +187,8 @@ struct LdState {
     start: Cell<(f64, f64)>,
     cur: Cell<(f64, f64)>,
     gen: Cell<u32>,
+    /// pressed with a mouse: dragging starts right away, no hold needed
+    mouse: Cell<bool>,
 }
 
 const HOLD_MS: u64 = 420;
@@ -202,10 +204,16 @@ pub fn attach_long_drag(w: &impl IsA<gtk::Widget>, spec: LongDrag) {
         start: Cell::new((0.0, 0.0)),
         cur: Cell::new((0.0, 0.0)),
         gen: Cell::new(0),
+        mouse: Cell::new(false),
     });
 
     let s = st.clone();
     g.connect_drag_begin(move |g, x, y| {
+        s.mouse.set(
+            g.current_event_device()
+                .map(|d| d.source() != gtk::gdk::InputSource::Touchscreen)
+                .unwrap_or(false),
+        );
         s.pressed.set(true);
         s.moved.set(false);
         s.active.set(false);
@@ -228,13 +236,21 @@ pub fn attach_long_drag(w: &impl IsA<gtk::Widget>, spec: LongDrag) {
     });
 
     let s = st.clone();
-    g.connect_drag_update(move |_, dx, dy| {
+    g.connect_drag_update(move |g, dx, dy| {
         let (sx, sy) = s.start.get();
         s.cur.set((sx + dx, sy + dy));
         if s.active.get() {
             (s.spec.motion)(sx + dx, sy + dy);
-        } else if dx.hypot(dy) > SLOP {
-            s.moved.set(true);
+        } else if dx.hypot(dy) > SLOP && !s.moved.get() {
+            // A mouse can't flick-scroll by accident like a finger: click and
+            // drag moves the thing straight away (a finger holds first).
+            if s.mouse.get() && (s.spec.start)(sx, sy) {
+                s.active.set(true);
+                let _ = g.set_state(gtk::EventSequenceState::Claimed);
+                (s.spec.motion)(sx + dx, sy + dy);
+            } else {
+                s.moved.set(true);
+            }
         }
     });
 

@@ -43,6 +43,9 @@ bindsym Mod4+Left focus left
 bindsym Mod4+Right focus right
 bindsym Mod4+Up focus up
 bindsym Mod4+Down focus down
+# the Windows/Super key alone: recent apps (on release, so Super+key still works)
+bindsym --release Super_L exec /usr/local/bin/rusttouch --do recents
+bindsym --release Super_R exec /usr/local/bin/rusttouch --do recents
 
 # Ubuntu: hand the session environment to systemd/D-Bus (portals)
 include /etc/sway/config.d/*

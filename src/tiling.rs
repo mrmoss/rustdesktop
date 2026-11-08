@@ -808,11 +808,19 @@ fn divider_window(shell: &Shell, d: &Divider, out: Rect) -> gtk::ApplicationWind
         });
     }
     area.add_controller(g);
-    w.set_cursor_from_name(Some(if d.side_by_side {
-        "col-resize"
+    // the resize arrow while the mouse is over it (see shell::base_cursor)
+    w.add_css_class(if d.side_by_side {
+        "cursor-col-resize"
     } else {
-        "row-resize"
-    }));
+        "cursor-row-resize"
+    });
+    w.set_cursor_from_name(if crate::shell::cursor_hidden() {
+        Some("none")
+    } else if d.side_by_side {
+        Some("col-resize")
+    } else {
+        Some("row-resize")
+    });
     w.present();
     w
 }

@@ -82,6 +82,7 @@ impl Client {
     /// Press and release a key (evdev code) with modifiers held (xkb mask).
     pub fn vk_key(&self, code: u32, mods: u32) {
         let Some(k) = &self.vkbd else { return };
+        note_osk_typed();
         let t = (glib_ms() & 0xffff_ffff) as u32;
         if mods != 0 {
             k.modifiers(mods, 0, 0, 0);
@@ -98,6 +99,7 @@ impl Client {
     /// that aren't on the keyboard map).
     pub fn commit_text(&self, text: &str) {
         let Some(m) = &self.im else { return };
+        note_osk_typed();
         m.commit_string(text.to_string());
         m.commit(self.im_serial.load(Ordering::SeqCst));
         let _ = self.conn.flush();
@@ -132,6 +134,9 @@ pub struct State {
     /// an activate arrived in this batch (also when already active: GTK
     /// re-sends it when you tap a focused field, meaning "show the keyboard")
     im_activated: bool,
+    /// the focused field's text as the app last told us (None: not told yet)
+    im_text: Option<String>,
+    im_text_pending: Option<String>,
 }
 
 impl State {
@@ -139,6 +144,18 @@ impl State {
         let _ = self.tx.send(Event::Toplevels(self.items.clone()));
         crate::shell::wake();
     }
+}
+
+/// When the on-screen keyboard last typed (ms): the text changes that follow
+/// are its own, not a real keyboard's.
+static OSK_TYPED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn note_osk_typed() {
+    OSK_TYPED.store(glib_ms(), Ordering::SeqCst);
+}
+
+fn osk_typed_recently() -> bool {
+    glib_ms().saturating_sub(OSK_TYPED.load(Ordering::SeqCst)) < 800
 }
 
 /// `want_im`: bind input-method-v2 (only when *we* drive the keyboard; an
@@ -242,6 +259,8 @@ pub fn start(tx: Sender<Event>, want_im: bool, want_kbd: bool) -> Option<Client>
         im_pending: false,
         im_active: false,
         im_activated: false,
+        im_text: None,
+        im_text_pending: None,
     };
     std::thread::Builder::new()
         .name("rusttouch-wayland".into())
@@ -363,9 +382,26 @@ impl Dispatch<im::ZwpInputMethodV2, ()> for State {
             im::Event::Activate => {
                 this.im_pending = true;
                 this.im_activated = true;
+                // a (new) field: its first text isn't a change
+                this.im_text = None;
+                this.im_text_pending = None;
             }
             im::Event::Deactivate => this.im_pending = false,
+            im::Event::SurroundingText { text, .. } => this.im_text_pending = Some(text),
             im::Event::Done => {
+                // the text in the field changed and our keyboard didn't do it:
+                // someone is typing on a real keyboard
+                if let Some(t) = this.im_text_pending.take() {
+                    let changed = this.im_active
+                        && this.im_pending
+                        && !this.im_activated
+                        && this.im_text.as_ref().is_some_and(|old| *old != t);
+                    this.im_text = Some(t);
+                    if changed && !osk_typed_recently() {
+                        let _ = this.tx.send(Event::TextEdited);
+                        crate::shell::wake();
+                    }
+                }
                 this.im_serial.fetch_add(1, Ordering::SeqCst);
                 let reshow = this.im_activated && this.im_pending;
                 this.im_activated = false;

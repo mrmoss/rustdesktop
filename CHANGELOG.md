@@ -2,6 +2,28 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.29
+
+- On-screen keyboard follows what you use, everywhere: a mouse click or
+  typing on a real keyboard puts it away, and text boxes then don't bring
+  it up by themselves (an app opening in one, switching windows); touching
+  anything - or a text box, even one that's already active - brings it
+  back. Real-keyboard typing is noticed from the text box's text changing
+  (RustTouch never reads your keys). The Super key and Escape count as the
+  real keyboard, so Super twice no longer pops the keyboard up.
+- Lock screen: other screens show a copy of it instead of staying black.
+- Displays: how other screens show the copy - Fit (whole picture, black
+  bars), Fill (edge to edge, edges cut off) or Exact (sharp, pixel for
+  pixel).
+- Home screen: the grid's spots stay about an icon's size at every display
+  scale (at 100% there were only 8 huge columns), and the pressed look of
+  an icon is now the same size as the spot that lights up when you drag one.
+- Recents: the cards have the shape of the space apps get (screen minus the
+  bars), with no dark strip above the windows; this mattered most at bigger
+  scales.
+- Mouse pointer: a resize arrow over the grab areas between windows, and a
+  hand over things you can click (also in Settings).
+
 ## 0.6.28
 
 - Lock screen: the battery level and whether it's charging, under the date.

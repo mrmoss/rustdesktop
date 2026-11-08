@@ -178,6 +178,36 @@ fn build(app: &gtk::Application) {
     });
     window.add_controller(keys);
 
+    // the hand pointer over things you can click
+    let hand = gtk::EventControllerMotion::new();
+    let w = window.clone();
+    hand.connect_motion(move |_, x, y| {
+        let mut at = w.pick(x, y, gtk::PickFlags::DEFAULT);
+        let mut want = None;
+        while let Some(wd) = at {
+            if wd.is::<gtk::Window>() {
+                break;
+            }
+            if wd.is::<gtk::Button>()
+                || wd.is::<gtk::Switch>()
+                || wd.is::<gtk::CheckButton>()
+                || wd.is::<gtk::DropDown>()
+                || wd
+                    .downcast_ref::<gtk::ListBoxRow>()
+                    .is_some_and(|r| r.is_activatable())
+            {
+                want = wd.is_sensitive().then_some("pointer");
+                break;
+            }
+            at = wd.parent();
+        }
+        let now = w.cursor().and_then(|c| c.name()).map(|n| n.to_string());
+        if now.as_deref() != want {
+            w.set_cursor_from_name(want);
+        }
+    });
+    window.add_controller(hand);
+
     // the mouse's back (8) and forward (9) side buttons
     let side = gtk::GestureClick::new();
     side.set_button(0);
@@ -455,6 +485,11 @@ const SEARCH: &[(&str, &str, &str)] = &[
     ("Resolution", "Displays", "mode monitor size"),
     ("Scale", "Displays", "zoom bigger smaller dpi hidpi"),
     (
+        "Other screens show the copy",
+        "Displays",
+        "mirror fit fill stretch zoom crop black bars external monitor",
+    ),
+    (
         "Rotation",
         "Displays",
         "portrait landscape orientation turn",
@@ -471,9 +506,9 @@ const SEARCH: &[(&str, &str, &str)] = &[
         "scroll direction reverse wheel trackpad",
     ),
     (
-        "Mouse click hides the keyboard",
+        "On-screen keyboard only for touch",
         "Mouse & touchpad",
-        "on-screen keyboard osk click",
+        "on-screen keyboard osk click mouse typing physical hide",
     ),
     (
         "Apps that start at login",
@@ -1354,8 +1389,8 @@ fn mouse(_: &Rc<Ctx>) -> gtk::Widget {
                 switch_row(
                     &cfg,
                     "keyboard_hide_on_mouse",
-                    "Mouse click hides the keyboard",
-                    Some("Clicking with a mouse puts the on-screen keyboard away"),
+                    "On-screen keyboard only for touch",
+                    Some("A mouse click or typing on a real keyboard puts it away; touching a text box brings it back"),
                 ),
             ],
         ),
@@ -1378,8 +1413,8 @@ fn keyboard(_: &Rc<Ctx>) -> gtk::Widget {
                 switch_row(
                     &cfg,
                     "keyboard_hide_on_mouse",
-                    "Hide when the mouse is used",
-                    Some("Clicking with a mouse puts it away"),
+                    "Only for touch",
+                    Some("A mouse click or typing on a real keyboard puts it away; touching a text box brings it back"),
                 ),
                 choice_row(
                     &cfg,
@@ -1654,6 +1689,19 @@ fn displays(ctx: &Rc<Ctx>) -> gtk::Widget {
         "Auto-rotate",
         Some("The built-in screen follows how you hold it"),
     ));
+    if outs.len() > 1 {
+        screen_rows.push(choice_row(
+            &cfg,
+            "mirror_fit",
+            "Other screens show the copy",
+            Some("When the other screen is a different shape"),
+            &[
+                ("fit", "Fit: whole picture, black bars"),
+                ("fill", "Fill: edge to edge, edges cut off"),
+                ("exact", "Exact: sharp, pixel for pixel size"),
+            ],
+        ));
+    }
     parts.push(group("Screen", &screen_rows));
 
     if outs.is_empty() {

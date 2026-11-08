@@ -28,6 +28,8 @@ pub enum Event {
     Sleep(bool),
     /// a text field gained (true) / lost (false) focus
     TextInput(bool),
+    /// the focused text box's text changed, not by our keyboard
+    TextEdited,
     /// from swayidle: "blank", "unblank", "sleep"
     Idle(String),
     /// hardware button (key code, pressed)
@@ -95,9 +97,14 @@ pub struct ShellInner {
     kb_hidden_at: Cell<i64>,
     /// when a mouse button was last pressed (anywhere)
     last_mouse_click: Cell<i64>,
-    /// An app opened (or switched to) with the mouse: until then, its first
-    /// text box doesn't bring up the on-screen keyboard.
-    mouse_opened_until: Cell<i64>,
+    /// Using the touchscreen (true) or a mouse / real keyboard (false): the
+    /// on-screen keyboard only comes up by itself with touch.
+    touch_mode: Cell<bool>,
+    /// A window was just opened or switched to by us (not by touching the
+    /// app): the next text box to activate follows touch_mode.
+    auto_focus_until: Cell<i64>,
+    /// An app was just launched: its first text box follows touch_mode.
+    launch_focus_until: Cell<i64>,
     /// an app's text field has focus (the input method is active)
     im_active: Cell<bool>,
     osk_gen: Cell<u32>,
@@ -202,6 +209,11 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
     if !layered {
         eprintln!("rusttouch: layer-shell not available -> windowed (phone emulator) mode");
     }
+    // touching (or clicking) anything of ours tells touch from mouse
+    for w in app.windows() {
+        watch_touch(&w);
+    }
+    app.connect_window_added(|_, w| watch_touch(w));
     let (tx, rx) = mpsc::channel::<Event>();
 
     let layer_win = |title: &str, layer: Layer, zone: i32, kb: KeyboardMode| {
@@ -324,7 +336,9 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         osk_visible: Cell::new(false),
         kb_hidden_at: Cell::new(0),
         last_mouse_click: Cell::new(0),
-        mouse_opened_until: Cell::new(0),
+        touch_mode: Cell::new(true),
+        auto_focus_until: Cell::new(0),
+        launch_focus_until: Cell::new(0),
         im_active: Cell::new(false),
         osk_gen: Cell::new(0),
         inhibitor: RefCell::new(None),
@@ -377,7 +391,7 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
                 let s = s.clone();
                 let _ = glib::timeout_add_local_once(Duration::from_millis(120), move || {
                     if s.im_active.get()
-                        && !s.mouse_clicked_within(1_500_000)
+                        && s.touch_mode.get()
                         && !s.osk_visible.get()
                         && !s.home_visible()
                         && !s.any_showing()
@@ -801,10 +815,17 @@ fn handle_event(shell: &Shell, ev: Event) {
             if shell.cfg().on("keyboard_hide_on_mouse") {
                 let s = shell.clone();
                 let _ = glib::timeout_add_local_once(Duration::from_millis(120), move || {
-                    if !crate::kbd::clicked_recently() && s.osk_visible.get() {
-                        s.show_keyboard(false);
+                    if !crate::kbd::clicked_recently() {
+                        s.set_touch_mode(false);
                     }
                 });
+            }
+        }
+        Event::TextEdited => {
+            // typing on a real keyboard: no on-screen one
+            if !shell.any_showing() {
+                shell.set_touch_mode(false);
+                shell.note_auto_focus();
             }
         }
         Event::Layout => crate::tiling::layout_changed(shell),
@@ -910,15 +931,30 @@ fn text_input(shell: &Shell, active: bool) {
         shell.last_activate.set(now);
         // a text box clicked with the mouse: no on-screen keyboard (only
         // right after the click - a tap on it later brings the keyboard)
-        if shell.mouse_clicked_within(500_000) {
-            return;
-        }
-        // an app opened with the mouse that starts in a text box: none
-        // either (once - tapping the box afterwards brings the keyboard)
-        if now < shell.mouse_opened_until.replace(0) {
-            return;
-        }
-        shell.show_keyboard(true);
+        // Touch or mouse? A text box activating right after a mouse click
+        // was clicked; right after we opened or switched to a window it
+        // activated by itself, so it goes with what you used last; anything
+        // else is a tap on it (also when it was already active - apps say
+        // so again when you tap them). (A moment's wait: the click can reach
+        // us just after the text box.)
+        let auto =
+            now < shell.auto_focus_until.replace(0) || now < shell.launch_focus_until.replace(0);
+        let s = shell.clone();
+        let _ = glib::timeout_add_local_once(Duration::from_millis(60), move || {
+            if s.osk_gen.get() != gen || !s.im_active.get() {
+                return;
+            }
+            if s.mouse_clicked_within(700_000) {
+                s.set_touch_mode(false);
+                return;
+            }
+            if !auto {
+                s.set_touch_mode(true);
+            }
+            if s.touch_mode.get() {
+                s.show_keyboard(true);
+            }
+        });
     } else if now - shell.last_activate.get() < 400_000 {
         // switching windows: the old window's "field closed" can arrive just
         // after the new window's "field opened" - don't let it hide the keyboard
@@ -1143,6 +1179,9 @@ fn reload_config(shell: &Shell) {
     {
         apply_displays(shell);
     }
+    if changed("mirror_fit") {
+        crate::screens::restart(shell);
+    }
     if changed("lock_message") {
         if let Some(l) = shell.lock.borrow().as_ref() {
             l.set_message(&new.get("lock_message"));
@@ -1216,7 +1255,7 @@ thread_local! {
 /// again on touch.
 fn watch_pointer(w: &gtk::ApplicationWindow) {
     let c = gtk::EventControllerLegacy::new();
-    c.connect_event(|_, ev| {
+    c.connect_event(|c, ev| {
         let mouse = match ev.event_type() {
             gdk::EventType::MotionNotify | gdk::EventType::ButtonPress | gdk::EventType::Scroll => {
                 ev.device()
@@ -1229,16 +1268,83 @@ fn watch_pointer(w: &gtk::ApplicationWindow) {
         if MOUSE.with(|m| m.replace(mouse)) != mouse {
             set_cursor_all();
         }
+        // the hand over things you can click
+        if mouse && ev.event_type() == gdk::EventType::MotionNotify {
+            if let (Some(w), Some((x, y))) =
+                (c.widget().and_downcast::<gtk::Window>(), ev.position())
+            {
+                let want = cursor_at(&w, x, y);
+                let now = w.cursor().map(|c| c.name().map(|n| n.to_string()));
+                if now.flatten().as_deref() != want {
+                    w.set_cursor_from_name(want);
+                }
+            }
+        }
         glib::Propagation::Proceed
     });
     w.add_controller(c);
     let w2 = w.clone();
-    let _ = glib::idle_add_local_once(move || w2.set_cursor_from_name(cursor_name()));
+    let _ = glib::idle_add_local_once(move || set_window_cursor(w2.upcast_ref()));
+}
+
+/// The window's own pointer: hidden, a resize arrow (the grab areas between
+/// windows: css class cursor-col-resize / cursor-row-resize) or the normal one.
+fn base_cursor(w: &gtk::Window) -> Option<&'static str> {
+    if cursor_name().is_some() {
+        Some("none")
+    } else if w.has_css_class("cursor-col-resize") {
+        Some("col-resize")
+    } else if w.has_css_class("cursor-row-resize") {
+        Some("row-resize")
+    } else {
+        None
+    }
+}
+
+fn set_window_cursor(w: &gtk::Window) {
+    w.set_cursor_from_name(base_cursor(w));
+}
+
+/// The pointer for the spot (x, y) of `w`: the hand over buttons, switches,
+/// list rows and cards; otherwise the window's own.
+fn cursor_at(w: &gtk::Window, x: f64, y: f64) -> Option<&'static str> {
+    let base = base_cursor(w);
+    if base.is_some() {
+        return base;
+    }
+    let mut at = w.pick(x, y, gtk::PickFlags::DEFAULT);
+    while let Some(wd) = at {
+        if wd.is::<gtk::Window>() {
+            break;
+        }
+        let clickable = wd.is::<gtk::Button>()
+            || wd.is::<gtk::Switch>()
+            || wd.is::<gtk::CheckButton>()
+            || wd.is::<gtk::DropDown>()
+            || wd
+                .downcast_ref::<gtk::ListBoxRow>()
+                .is_some_and(|r| r.is_activatable())
+            || wd.has_css_class("clickable")
+            || wd.has_css_class("rcard");
+        if clickable {
+            return wd.is_sensitive().then_some("pointer");
+        }
+        at = wd.parent();
+    }
+    None
+}
+
+/// The pointer is hidden (touch, or Settings say so).
+pub fn cursor_hidden() -> bool {
+    cursor_name().is_some()
 }
 
 fn cursor_name() -> Option<&'static str> {
-    let cfg = Config::load();
-    let mode = cfg.get("show_cursor");
+    // (the shell's copy of the settings: this runs on every mouse move)
+    let mode = match SELF.with(|me| me.borrow().as_ref().and_then(|w| w.upgrade())) {
+        Some(s) => s.cfg.borrow().get("show_cursor"),
+        None => Config::load().get("show_cursor"),
+    };
     let show = mode == "on"
         || std::env::var_os("RUSTTOUCH_SHOW_CURSOR").is_some()
         || (mode != "off" && MOUSE.with(|m| m.get()));
@@ -1251,11 +1357,45 @@ fn cursor_name() -> Option<&'static str> {
 
 fn set_cursor_all() {
     if let Some(app) = gio::Application::default().and_downcast::<gtk::Application>() {
-        let name = cursor_name();
         for w in app.windows() {
-            w.set_cursor_from_name(name);
+            set_window_cursor(&w);
         }
     }
+}
+
+/// A touch on one of our windows: you're using the touchscreen. A mouse
+/// click (not on the keyboard itself): the mouse.
+fn watch_touch(w: &gtk::Window) {
+    let c = gtk::EventControllerLegacy::new();
+    c.set_propagation_phase(gtk::PropagationPhase::Capture);
+    c.connect_event(move |c, ev| {
+        let keyboard = c
+            .widget()
+            .and_downcast::<gtk::Window>()
+            .and_then(|w| w.title())
+            .as_deref()
+            == Some("rusttouch keyboard");
+        let touch = match ev.event_type() {
+            gdk::EventType::TouchBegin => true,
+            gdk::EventType::ButtonPress
+                if !keyboard
+                    && ev
+                        .device()
+                        .map(|d| d.source() != gdk::InputSource::Touchscreen)
+                        .unwrap_or(false) =>
+            {
+                false
+            }
+            _ => return glib::Propagation::Proceed,
+        };
+        if let Some(s) = SELF.with(|me| me.borrow().as_ref().and_then(|w| w.upgrade())) {
+            if s.touch_mode.get() != touch {
+                s.set_touch_mode(touch);
+            }
+        }
+        glib::Propagation::Proceed
+    });
+    w.add_controller(c);
 }
 
 thread_local! {
@@ -2054,7 +2194,8 @@ impl ShellInner {
 
     /// An app was just launched from home or the drawer.
     pub fn launching(&self) {
-        self.note_mouse_open(20);
+        self.launch_focus_until
+            .set(glib::monotonic_time() + 10_000_000);
         if crate::tiling::enabled(self) {
             // give the new app a workspace of its own; home stays up until its
             // window shows (set_toplevels), so there's no empty screen meanwhile
@@ -2084,13 +2225,23 @@ impl ShellInner {
         }
     }
 
-    /// Opened with a mouse click just now? Then the app's first text box
-    /// (apps that start in one) gets no on-screen keyboard, for `secs`.
-    fn note_mouse_open(&self, secs: i64) {
-        let now = glib::monotonic_time();
-        if self.cfg().on("keyboard_hide_on_mouse") && now - self.last_mouse_click.get() < 1_500_000
-        {
-            self.mouse_opened_until.set(now + secs * 1_000_000);
+    /// We're about to switch windows: a text box activating in the next
+    /// moment did so by itself, not because you touched it.
+    pub fn note_auto_focus(&self) {
+        self.auto_focus_until
+            .set(glib::monotonic_time() + 1_500_000);
+    }
+
+    /// Touch (true) or mouse / real keyboard (false) is what you're using.
+    /// Going to the mouse or keyboard puts the on-screen keyboard away.
+    pub fn set_touch_mode(&self, touch: bool) {
+        if !self.cfg().on("keyboard_hide_on_mouse") {
+            self.touch_mode.set(true);
+            return;
+        }
+        self.touch_mode.set(touch);
+        if !touch && self.osk_visible.get() && !self.is_locked() {
+            self.show_keyboard(false);
         }
     }
 
@@ -2227,7 +2378,7 @@ impl ShellInner {
     }
 
     pub fn activate(&self, t: &Toplevel) {
-        self.note_mouse_open(2);
+        self.note_auto_focus();
         if let Some(wl) = &self.wl {
             wl.activate(t);
         }
@@ -2670,6 +2821,7 @@ fn embedded_keyboard() -> gtk::Widget {
 
 /// The previously used app (phoc/labwc) or window group (sway).
 pub fn switch_to_last(shell: &Shell) {
+    shell.note_auto_focus();
     let mru = shell.toplevels_mru();
     if crate::tiling::enabled(shell) {
         crate::tiling::last_group(&mru, shell.home_visible());
@@ -2688,6 +2840,7 @@ pub fn switch_to_last(shell: &Shell) {
 
 /// Next/previous app or window group (gestures).
 fn cycle(shell: &Shell, forward: bool) {
+    shell.note_auto_focus();
     if crate::tiling::enabled(shell) {
         let s = shell.clone();
         // a screenshot of what's leaving, for recents
@@ -2719,7 +2872,10 @@ pub fn do_action(shell: &Shell, name: &str) {
         "next-group" => cycle(shell, true),
         "prev-group" => cycle(shell, false),
         // the Super key: recents, and again to leave it (or the window arranger)
+        // (from a key binding: you're on a real keyboard)
         "overview" => {
+            shell.set_touch_mode(false);
+            shell.note_auto_focus();
             if crate::tiling::close_arrange() {
                 shell.hide_all();
             } else if shell.recents.is_open() || shell.recents.progress() > 0.001 {
@@ -2730,6 +2886,8 @@ pub fn do_action(shell: &Shell, name: &str) {
             sync_escape();
         }
         "close-menus" => {
+            shell.set_touch_mode(false);
+            shell.note_auto_focus();
             crate::tiling::close_arrange();
             shell.hide_all();
             sync_escape();

@@ -442,6 +442,7 @@ impl LockInner {
             .and_then(|m| monitors.iter().position(|x| *x == m))
             .unwrap_or(0);
         self.take_root();
+        let fit = crate::config::Config::load().get("mirror_fit");
         let mut wins = Vec::new();
         for (i, m) in monitors.iter().enumerate() {
             // (the library destroys these when the lock ends)
@@ -450,10 +451,20 @@ impl LockInner {
             if i == main {
                 w.set_child(Some(&self.root));
             } else {
-                // other screens: just covered
-                let blank = gtk::Box::new(gtk::Orientation::Vertical, 0);
-                blank.add_css_class("lock");
-                w.set_child(Some(&blank));
+                // other screens: a live copy of the lock screen (like the
+                // copy they show of everything else), fitted the same way
+                let cover = gtk::Box::new(gtk::Orientation::Vertical, 0);
+                cover.add_css_class("lock-mirror");
+                let pic = gtk::Picture::for_paintable(&gtk::WidgetPaintable::new(Some(&self.root)));
+                pic.set_content_fit(match fit.as_str() {
+                    "fill" => gtk::ContentFit::Cover,
+                    _ => gtk::ContentFit::Contain,
+                });
+                pic.set_can_shrink(true);
+                pic.set_hexpand(true);
+                pic.set_vexpand(true);
+                cover.append(&pic);
+                w.set_child(Some(&cover));
             }
             s.assign_window_to_monitor(&w, m);
             w.present();

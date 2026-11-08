@@ -171,8 +171,10 @@ fn dims() -> (usize, usize) {
     let (_, _, w, h) = shell::screen_size();
     let (top, nav) = crate::theme::bar_sizes(&Config::load());
     let usable_h = (h - top - nav - 60).max(CELL_H * 3);
-    let cols = (w / CELL_W).clamp(4, 8) as usize;
-    let rows = (usable_h / CELL_H).clamp(3, 12) as usize;
+    // as many as fit at about an icon's size: cells stay close to the icons
+    // at every display scale (a cap of 8 columns made them huge at 100%)
+    let cols = (w / CELL_W).clamp(4, 24) as usize;
+    let rows = (usable_h / CELL_H).clamp(3, 16) as usize;
     (cols, rows)
 }
 
@@ -200,8 +202,12 @@ pub fn render(h: &Home) {
         cell.set_vexpand(true);
         if !id.is_empty() {
             if let Some(t) = tile(h, id) {
-                t.set_valign(gtk::Align::Center);
+                // the tile fills its cell: its pressed look is the same size
+                // as the spot lighting up while you drag an icon
+                t.set_valign(gtk::Align::Fill);
+                t.set_halign(gtk::Align::Fill);
                 t.set_vexpand(true);
+                t.set_hexpand(true);
                 cell.append(&t);
             }
         }

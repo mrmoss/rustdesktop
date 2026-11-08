@@ -1,0 +1,93 @@
+#!/bin/sh
+# Login-manager entry point. Picks the compositor from `compositor =` in
+# ~/.config/rusttouch/rusttouch.conf (Settings > Windows):
+#   auto (default): sway if installed (split screen), else phoc, else labwc
+# RUSTTOUCH_COMPOSITOR=sway|phoc|labwc in ~/.config/rusttouch/env overrides it.
+export XDG_CURRENT_DESKTOP=rusttouch:wlroots
+export XDG_SESSION_DESKTOP=rusttouch
+export XDG_SESSION_TYPE=wayland
+export MOZ_ENABLE_WAYLAND=1
+export QT_QPA_PLATFORM="wayland;xcb"
+export GDK_BACKEND="wayland,x11"
+[ -f "$HOME/.config/rusttouch/env" ] && . "$HOME/.config/rusttouch/env"
+
+SHARE=/usr/local/share/rusttouch
+
+# RustTouch's private runtime folder (logs, previews, its control pipe):
+# $XDG_RUNTIME_DIR/rusttouch, or ~/.cache/rusttouch-run without one - never a
+# shared folder like /tmp. Only you can open it. (src/sys.rs picks the same.)
+if [ -n "$XDG_RUNTIME_DIR" ] && [ -d "$XDG_RUNTIME_DIR" ] && [ ! -L "$XDG_RUNTIME_DIR" ] && [ -O "$XDG_RUNTIME_DIR" ]; then
+  RT="$XDG_RUNTIME_DIR/rusttouch"
+else
+  mkdir -p "${HOME:?}/.cache"
+  RT="$HOME/.cache/rusttouch-run"
+fi
+(umask 077; mkdir -p "$RT")
+if [ -L "$RT" ] || [ ! -d "$RT" ] || [ ! -O "$RT" ]; then
+  echo "rusttouch: $RT isn't a folder of yours - not starting" >&2
+  exit 1
+fi
+chmod 700 "$RT"
+export RUSTTOUCH_RUNTIME="$RT"
+# a new login starts unlocked (the marker only matters if RustTouch crashes
+# while locked during this session)
+rm -f "$RT/locked" "$RT/lock-notice-shown"
+COMP="${RUSTTOUCH_COMPOSITOR:-}"
+CONF="$HOME/.config/rusttouch/rusttouch.conf"
+if [ -z "$COMP" ] && [ -f "$CONF" ]; then
+  COMP=$(sed -n 's/^[[:space:]]*compositor[[:space:]]*=[[:space:]]*\([a-z]*\).*/\1/p' "$CONF" | tail -n1)
+fi
+[ "$COMP" = auto ] && COMP=""
+if [ -n "$COMP" ] && ! command -v "$COMP" >/dev/null; then
+  echo "rusttouch: $COMP isn't installed, choosing automatically" >&2
+  COMP=""
+fi
+if [ -z "$COMP" ]; then
+  if command -v sway >/dev/null; then COMP=sway
+  elif command -v phoc >/dev/null; then COMP=phoc
+  else COMP=labwc; fi
+fi
+
+# the built-in panel (touches follow it when it rotates)
+PANEL=""
+for s in /sys/class/drm/card*-eDP-*/status /sys/class/drm/card*-DSI-*/status; do
+  [ -f "$s" ] && [ "$(cat "$s")" = connected ] && { PANEL=$(basename "$(dirname "$s")"); PANEL=${PANEL#*-}; break; }
+done
+
+case "$COMP" in
+sway)
+  RUN="$RT/sway"
+  mkdir -p "$RUN"
+  {
+    cat "$SHARE/sway/config"
+    [ -n "$PANEL" ] && echo "input type:touch map_to_output $PANEL"
+    [ -n "$PANEL" ] && echo "input type:tablet_tool map_to_output $PANEL"
+    [ -f "$HOME/.config/rusttouch/sway.conf" ] && echo "include $HOME/.config/rusttouch/sway.conf"
+  } > "$RUN/config"
+  # sway's own messages (and why, if it ever crashes); the last session's
+  # log is kept as sway.log.old
+  LOGD="$RT"
+  [ -f "$LOGD/sway.log" ] && mv -f "$LOGD/sway.log" "$LOGD/sway.log.old"
+  exec sway -c "$RUN/config" 2>"$LOGD/sway.log"
+  ;;
+phoc)
+  # every app window maximized between the bars, phone-style
+  export PHOC_DEBUG="${PHOC_DEBUG:+$PHOC_DEBUG,}auto-maximize"
+  gsettings set sm.puri.phoc auto-maximize true 2>/dev/null
+  exec phoc -X -C "$SHARE/phoc.ini" -E /usr/local/bin/rusttouch-shell
+  ;;
+labwc)
+  # map the touchscreen to the built-in panel so touches rotate with it
+  RUN="$RT/labwc"
+  mkdir -p "$RUN"
+  cp "$SHARE/labwc/autostart" "$RUN/autostart"
+  OUT="$PANEL"
+  if [ -n "$OUT" ]; then
+    sed "s#</labwc_config>#  <touch mapToOutput=\"$OUT\" mouseEmulation=\"no\"/>\n</labwc_config>#" \
+      "$SHARE/labwc/rc.xml" > "$RUN/rc.xml"
+  else
+    cp "$SHARE/labwc/rc.xml" "$RUN/rc.xml"
+  fi
+  exec labwc -C "$RUN"
+  ;;
+esac

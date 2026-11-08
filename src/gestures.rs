@@ -177,6 +177,10 @@ pub struct LongDrag {
     pub motion: Box<dyn Fn(f64, f64)>,
     pub end: Box<dyn Fn(f64, f64)>,
     pub cancel: Box<dyn Fn()>,
+    /// With a mouse, a drag that starts upwards is left alone (recents: that
+    /// flicks the card away to close it); other directions, or holding
+    /// still first, pick the thing up.
+    pub mouse_up_passes: bool,
 }
 
 struct LdState {
@@ -244,7 +248,8 @@ pub fn attach_long_drag(w: &impl IsA<gtk::Widget>, spec: LongDrag) {
         } else if dx.hypot(dy) > SLOP && !s.moved.get() {
             // A mouse can't flick-scroll by accident like a finger: click and
             // drag moves the thing straight away (a finger holds first).
-            if s.mouse.get() && (s.spec.start)(sx, sy) {
+            let upwards = dy < 0.0 && dy.abs() > dx.abs();
+            if s.mouse.get() && !(s.spec.mouse_up_passes && upwards) && (s.spec.start)(sx, sy) {
                 s.active.set(true);
                 let _ = g.set_state(gtk::EventSequenceState::Claimed);
                 (s.spec.motion)(sx + dx, sy + dy);

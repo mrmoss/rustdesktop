@@ -94,8 +94,36 @@ pub fn build(shell: &Shell, window: Option<gtk::ApplicationWindow>) -> Lock {
     message.set_margin_top(18);
     message.set_margin_start(24);
     message.set_margin_end(24);
+    // the battery: how full, and whether it's charging
+    let power = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    power.add_css_class("lock-power");
+    power.set_halign(gtk::Align::Center);
+    power.set_margin_top(10);
+    let power_icon = crate::icons::Icon::new(crate::icons::Glyph::Battery(0, false), 20);
+    let power_text = gtk::Label::new(None);
+    power.append(&power_icon.area);
+    power.append(&power_text);
+    {
+        let power = power.clone();
+        shell.on_status(move |st| match st.battery {
+            Some((pct, plugged)) => {
+                power_icon.set(crate::icons::Glyph::Battery(pct, plugged));
+                power_text.set_text(&format!(
+                    "{pct}% · {}",
+                    match (plugged, pct >= 100) {
+                        (true, true) => "Fully charged",
+                        (true, false) => "Charging",
+                        (false, _) => "Not charging",
+                    }
+                ));
+                power.set_visible(true);
+            }
+            None => power.set_visible(false),
+        });
+    }
     cp.append(&time);
     cp.append(&date);
+    cp.append(&power);
     cp.append(&message);
     cp.append(&spacer);
     cp.append(&hint);

@@ -687,6 +687,7 @@ fn attach_group_drag(
                 let _ = glib::timeout_add_local_once(Duration::from_millis(200), move || r());
             }),
             cancel: Box::new(move || reset()),
+            mouse_up_passes: true,
         },
     );
 }

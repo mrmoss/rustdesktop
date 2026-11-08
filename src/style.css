@@ -229,6 +229,7 @@ button.join-btn { background: @rd_accent; color: @rd_accent_fg; font-weight: 700
 /* invisible touch strips that bring auto-hidden bars back */
 .edge-strip { min-height: 10px; background: rgba(0, 0, 0, 0.01); }
 .lock-message { font-size: 16px; opacity: 0.9; }
+.lock-power { font-size: 16px; opacity: 0.85; }
 
 /* ---- split screen (sway) ---- */
 .split-divider { background: transparent; }

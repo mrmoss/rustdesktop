@@ -466,6 +466,7 @@ pub fn build(shell: &Shell) -> Home {
             cancel: Box::new(move || {
                 cancel(&h4);
             }),
+            mouse_up_passes: false,
         },
     );
 

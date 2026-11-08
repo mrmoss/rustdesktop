@@ -996,6 +996,24 @@ pub fn rotate_to(orientation: &str) {
             run("xrandr", &["-o", x]);
             return;
         }
+        // sway: tell it directly, and only when the turn really changes.
+        // wlr-randr sends the settings of *every* screen, which made sway
+        // set up the other monitors again too (black for a second).
+        if crate::sway::available() {
+            let outs = crate::sway::outputs();
+            let builtin = outs
+                .iter()
+                .find(|(n, _)| {
+                    n.starts_with("eDP") || n.starts_with("DSI") || n.starts_with("LVDS")
+                })
+                .or(outs.first());
+            if let Some((name, now)) = builtin {
+                if now != tf {
+                    crate::sway::run(&format!("output {name} transform {tf}"));
+                }
+                return;
+            }
+        }
         if let Some(name) = builtin_output() {
             run("wlr-randr", &["--output", &name, "--transform", tf]);
         }

@@ -309,6 +309,11 @@ fn sync_power(nl: &List) {
     nl.power_sync.set(false);
 }
 
+/// Which list it shows (or last showed).
+pub fn kind(nl: &List) -> Kind {
+    nl.kind.get()
+}
+
 pub fn open(nl: &List, kind: Kind) {
     nl.kind.set(kind);
     nl.connecting.borrow_mut().take();

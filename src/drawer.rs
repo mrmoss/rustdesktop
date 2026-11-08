@@ -126,6 +126,7 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
                     s4.drawer.set_ghost(false);
                 }
             }),
+            mouse_up_passes: false,
         },
     );
 

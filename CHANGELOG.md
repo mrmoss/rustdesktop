@@ -2,6 +2,23 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.28
+
+- Lock screen: the battery level and whether it's charging, under the date.
+- Keyboard: an app opened with the mouse that starts in a text box doesn't
+  bring up the on-screen keyboard (tap the box to get it). Same for
+  switching back to an app with the mouse from recents.
+- The Super key again leaves recents (or the window arranger) instead of
+  jumping to another app.
+- Recents with the mouse: drag a card up to close it, like a finger; drag
+  it sideways or down (or press and hold first) to move the window into a
+  group.
+- Pull-down: the mouse's back button leaves the Wi-Fi, Bluetooth, Sound or
+  tray app page; forward goes back into it.
+- Rotate: turning it on no longer makes an external monitor go black for a
+  second. On sway the screen is turned through sway itself, and only when
+  it really needs turning (wlr-randr re-sent every monitor's settings).
+
 ## 0.6.27
 
 - Escape closes the app drawer, the pull-down, recents and the window

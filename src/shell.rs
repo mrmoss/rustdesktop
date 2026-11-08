@@ -95,6 +95,9 @@ pub struct ShellInner {
     kb_hidden_at: Cell<i64>,
     /// when a mouse button was last pressed (anywhere)
     last_mouse_click: Cell<i64>,
+    /// An app opened (or switched to) with the mouse: until then, its first
+    /// text box doesn't bring up the on-screen keyboard.
+    mouse_opened_until: Cell<i64>,
     /// an app's text field has focus (the input method is active)
     im_active: Cell<bool>,
     osk_gen: Cell<u32>,
@@ -321,6 +324,7 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         osk_visible: Cell::new(false),
         kb_hidden_at: Cell::new(0),
         last_mouse_click: Cell::new(0),
+        mouse_opened_until: Cell::new(0),
         im_active: Cell::new(false),
         osk_gen: Cell::new(0),
         inhibitor: RefCell::new(None),
@@ -373,6 +377,7 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
                 let s = s.clone();
                 let _ = glib::timeout_add_local_once(Duration::from_millis(120), move || {
                     if s.im_active.get()
+                        && !s.mouse_clicked_within(1_500_000)
                         && !s.osk_visible.get()
                         && !s.home_visible()
                         && !s.any_showing()
@@ -905,8 +910,12 @@ fn text_input(shell: &Shell, active: bool) {
         shell.last_activate.set(now);
         // a text box clicked with the mouse: no on-screen keyboard (only
         // right after the click - a tap on it later brings the keyboard)
-        if shell.cfg().on("keyboard_hide_on_mouse") && now - shell.last_mouse_click.get() < 500_000
-        {
+        if shell.mouse_clicked_within(500_000) {
+            return;
+        }
+        // an app opened with the mouse that starts in a text box: none
+        // either (once - tapping the box afterwards brings the keyboard)
+        if now < shell.mouse_opened_until.replace(0) {
             return;
         }
         shell.show_keyboard(true);
@@ -2045,6 +2054,7 @@ impl ShellInner {
 
     /// An app was just launched from home or the drawer.
     pub fn launching(&self) {
+        self.note_mouse_open(20);
         if crate::tiling::enabled(self) {
             // give the new app a workspace of its own; home stays up until its
             // window shows (set_toplevels), so there's no empty screen meanwhile
@@ -2072,6 +2082,21 @@ impl ShellInner {
                 w.set_visible(false);
             }
         }
+    }
+
+    /// Opened with a mouse click just now? Then the app's first text box
+    /// (apps that start in one) gets no on-screen keyboard, for `secs`.
+    fn note_mouse_open(&self, secs: i64) {
+        let now = glib::monotonic_time();
+        if self.cfg().on("keyboard_hide_on_mouse") && now - self.last_mouse_click.get() < 1_500_000
+        {
+            self.mouse_opened_until.set(now + secs * 1_000_000);
+        }
+    }
+
+    fn mouse_clicked_within(&self, us: i64) -> bool {
+        self.cfg().on("keyboard_hide_on_mouse")
+            && glib::monotonic_time() - self.last_mouse_click.get() < us
     }
 
     fn launching_now(&self) -> bool {
@@ -2202,6 +2227,7 @@ impl ShellInner {
     }
 
     pub fn activate(&self, t: &Toplevel) {
+        self.note_mouse_open(2);
         if let Some(wl) = &self.wl {
             wl.activate(t);
         }
@@ -2692,6 +2718,17 @@ pub fn do_action(shell: &Shell, name: &str) {
         "quick" => shell.toggle(Overlay::Quick),
         "next-group" => cycle(shell, true),
         "prev-group" => cycle(shell, false),
+        // the Super key: recents, and again to leave it (or the window arranger)
+        "overview" => {
+            if crate::tiling::close_arrange() {
+                shell.hide_all();
+            } else if shell.recents.is_open() || shell.recents.progress() > 0.001 {
+                shell.hide_all();
+            } else {
+                toggle_recents(shell);
+            }
+            sync_escape();
+        }
         "close-menus" => {
             crate::tiling::close_arrange();
             shell.hide_all();

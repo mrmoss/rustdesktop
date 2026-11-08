@@ -2,6 +2,23 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.26
+
+- Mouse: the pointer stays on the main screen. Other screens only show a
+  copy, but sway counted them as more room, so the pointer wandered onto
+  them ("wrapping" left/right and up/down).
+- Mouse: drag lists to scroll them like a finger does - the app drawer,
+  recents, the pull-down's lists (GTK only drag-scrolls with touch).
+  Pressing and holding first still moves icons and cards.
+- Settings > Mouse & touchpad (new): natural scrolling (on by default), the
+  mouse pointer (moved here from Displays), and "Mouse click hides the
+  keyboard".
+- On-screen keyboard: clicking with a mouse anywhere puts it away, and a
+  text box clicked with the mouse doesn't bring it up (on by default;
+  Settings > Keyboard or Mouse & touchpad). Clicking the keyboard itself
+  doesn't count. RustTouch only looks at mouse button presses for this
+  (install.sh gives it access to mice and touchpads, like the buttons).
+
 ## 0.6.25
 
 - Security follow-up: PAM's answer callback checks everything before

@@ -358,7 +358,7 @@ const PAGES: &[(&str, &str, PageFn)] = &[
     ),
     (
         "Displays",
-        "Main screen, resolution, rotation (others mirror it)",
+        "Scale, resolution, rotation (others show a copy)",
         displays,
     ),
     ("Startup apps", "Programs to start when you log in", startup),
@@ -369,6 +369,7 @@ const PAGES: &[(&str, &str, PageFn)] = &[
         power,
     ),
     ("Keyboard", "On-screen keyboard", keyboard),
+    ("Mouse & touchpad", "Scroll direction, pointer", mouse),
     ("Network", "Wi-Fi, Bluetooth", network),
     ("About", "Version, files", about),
 ];
@@ -428,7 +429,17 @@ const SEARCH: &[(&str, &str, &str)] = &[
         "Displays",
         "accelerometer orientation portrait landscape",
     ),
-    ("Mouse pointer", "Displays", "cursor show hide"),
+    ("Mouse pointer", "Mouse & touchpad", "cursor show hide"),
+    (
+        "Natural scrolling",
+        "Mouse & touchpad",
+        "scroll direction reverse wheel trackpad",
+    ),
+    (
+        "Mouse click hides the keyboard",
+        "Mouse & touchpad",
+        "on-screen keyboard osk click",
+    ),
     (
         "Apps that start at login",
         "Startup apps",
@@ -1266,6 +1277,41 @@ const KB_STYLES: &[(&str, &str)] = &[
     ("wvkbd", "Classic dark keys"),
 ];
 
+fn mouse(_: &Rc<Ctx>) -> gtk::Widget {
+    let cfg = Config::load();
+    page(&[
+        group(
+            "Mouse & touchpad",
+            &[
+                switch_row(
+                    &cfg,
+                    "mouse_natural_scroll",
+                    "Natural scrolling",
+                    Some("The page moves the way your fingers do, like on a touch screen"),
+                ),
+                choice_row(
+                    &cfg,
+                    "show_cursor",
+                    "Mouse pointer",
+                    None,
+                    &[
+                        ("auto", "While a mouse is used"),
+                        ("on", "Always"),
+                        ("off", "Never"),
+                    ],
+                ),
+                switch_row(
+                    &cfg,
+                    "keyboard_hide_on_mouse",
+                    "Mouse click hides the keyboard",
+                    Some("Clicking with a mouse puts the on-screen keyboard away"),
+                ),
+            ],
+        ),
+        note("The pointer stays on the main screen - other screens show a copy of it."),
+    ])
+}
+
 fn keyboard(_: &Rc<Ctx>) -> gtk::Widget {
     let cfg = Config::load();
     page(&[
@@ -1277,6 +1323,12 @@ fn keyboard(_: &Rc<Ctx>) -> gtk::Widget {
                     "keyboard_auto",
                     "Show automatically",
                     Some("Pop up when you tap a text field"),
+                ),
+                switch_row(
+                    &cfg,
+                    "keyboard_hide_on_mouse",
+                    "Hide when the mouse is used",
+                    Some("Clicking with a mouse puts it away"),
                 ),
                 choice_row(
                     &cfg,
@@ -1550,17 +1602,6 @@ fn displays(ctx: &Rc<Ctx>) -> gtk::Widget {
         "auto_rotate",
         "Auto-rotate",
         Some("The built-in screen follows how you hold it"),
-    ));
-    screen_rows.push(choice_row(
-        &cfg,
-        "show_cursor",
-        "Mouse pointer",
-        None,
-        &[
-            ("auto", "While a mouse is used"),
-            ("on", "Always"),
-            ("off", "Never"),
-        ],
     ));
     parts.push(group("Screen", &screen_rows));
 

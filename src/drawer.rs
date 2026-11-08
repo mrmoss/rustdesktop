@@ -60,6 +60,7 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
         .vexpand(true)
         .hscrollbar_policy(gtk::PolicyType::Never)
         .build();
+    crate::gestures::mouse_drag_scroll(&scroll);
     root.append(&scroll);
 
     let tip = gtk::Label::new(Some("Long-press an app to put it on the home screen"));

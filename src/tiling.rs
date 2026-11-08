@@ -66,11 +66,37 @@ pub fn enabled(shell: &shell::ShellInner) -> bool {
 }
 
 /// Watch sway for new windows / layout changes.
+/// Mice and touchpads: the pointer stays on the main screen (the other
+/// screens only show a copy, so it used to wander off and "wrap" onto them),
+/// and the scroll direction from Settings > Mouse.
+pub fn set_pointer(shell: &Shell, main: Option<&str>) {
+    if !enabled(shell) {
+        return;
+    }
+    let natural = if shell.cfg().on("mouse_natural_scroll") {
+        "enabled"
+    } else {
+        "disabled"
+    };
+    let mut cmd = format!(
+        "input type:pointer natural_scroll {natural}; input type:touchpad natural_scroll {natural}"
+    );
+    if let Some(m) =
+        main.filter(|m| !m.is_empty() && m.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+    {
+        cmd += &format!(
+            "; input type:pointer map_to_output {m}; input type:touchpad map_to_output {m}"
+        );
+    }
+    sway::run(&cmd);
+}
+
 pub fn start(shell: &Shell) {
     if !enabled(shell) {
         return;
     }
     eprintln!("rusttouch: sway found - split screen available");
+    set_pointer(shell, shell::shell_output_name().as_deref());
     // Apps that can draw their own title bar (most GTK/Qt apps) are asked to,
     // so they get a close button - sway's own title bars have none.
     sway::run(r#"for_window [shell="xdg_shell"] border csd"#);

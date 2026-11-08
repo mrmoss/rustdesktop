@@ -160,6 +160,7 @@ pub fn build(
         .max_content_height(360)
         .propagate_natural_height(true)
         .build();
+    crate::gestures::mouse_drag_scroll(&scroll);
     root.append(&scroll);
 
     let status = gtk::Label::new(None);

@@ -159,6 +159,16 @@ pub const KEYS: &[Key] = &[
         help: "seconds the auto-hiding bars stay after you bring them back or touch them",
     },
     Key {
+        name: "mouse_natural_scroll",
+        default: "on",
+        help: "on | off  (on: scrolling moves the page like a finger does - \"natural\" scrolling; off: the classic way)",
+    },
+    Key {
+        name: "keyboard_hide_on_mouse",
+        default: "on",
+        help: "on | off  (clicking with a mouse puts the on-screen keyboard away, and text boxes clicked with the mouse don't bring it up)",
+    },
+    Key {
         name: "insecure_lock",
         default: "off",
         help: "on | off  (on a window manager without the secure session lock - not sway - use a plain cover as the lock screen anyway; a crash of RustTouch removes it)",

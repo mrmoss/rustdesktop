@@ -257,3 +257,86 @@ pub fn attach_long_drag(w: &impl IsA<gtk::Widget>, spec: LongDrag) {
 
     w.add_controller(g);
 }
+
+/// With a mouse, drag a list to scroll it, like a finger does (GTK only
+/// drag-scrolls with touch; a mouse otherwise needs the wheel). Touch is left
+/// alone. A press held still for a moment is left alone too, so press-and-
+/// hold dragging (moving icons, recents cards) still works; and at the end
+/// of the list the drag is left to the menu (dragging the drawer closed).
+pub fn mouse_drag_scroll(sc: &gtk::ScrolledWindow) {
+    let g = gtk::GestureDrag::new();
+    g.set_button(1);
+    g.set_propagation_phase(gtk::PropagationPhase::Capture);
+    // (horizontal, vertical) scroll at the start; when the button went down;
+    // scrolling has started
+    let start = Rc::new(Cell::new((0.0f64, 0.0f64)));
+    let pressed_at = Rc::new(Cell::new(0i64));
+    let scrolling = Rc::new(Cell::new(false));
+    {
+        let (sc, start, at, on) = (
+            sc.clone(),
+            start.clone(),
+            pressed_at.clone(),
+            scrolling.clone(),
+        );
+        g.connect_drag_begin(move |g, _, _| {
+            let touch = g
+                .current_event_device()
+                .map(|d| d.source() == gtk::gdk::InputSource::Touchscreen)
+                .unwrap_or(true);
+            if touch {
+                let _ = g.set_state(gtk::EventSequenceState::Denied);
+                return;
+            }
+            start.set((sc.hadjustment().value(), sc.vadjustment().value()));
+            at.set(glib::monotonic_time());
+            on.set(false);
+        });
+    }
+    {
+        let (sc, start, at, on) = (
+            sc.clone(),
+            start.clone(),
+            pressed_at.clone(),
+            scrolling.clone(),
+        );
+        g.connect_drag_update(move |g, dx, dy| {
+            if !on.get() {
+                if dx.hypot(dy) < SLOP {
+                    return;
+                }
+                // held still first: that's press-and-hold dragging, not scrolling
+                if glib::monotonic_time() - at.get() > 350_000 {
+                    let _ = g.set_state(gtk::EventSequenceState::Denied);
+                    return;
+                }
+                let (h, v) = (sc.hadjustment(), sc.vadjustment());
+                let can_h = h.upper() - h.page_size() > 1.0;
+                let can_v = v.upper() - v.page_size() > 1.0;
+                let horizontal = dx.abs() > dy.abs();
+                // nothing to scroll that way, or already at that end: the
+                // drag belongs to whatever is around the list
+                let at_end = !horizontal && ((dy > 0.0 && v.value() <= v.lower()) || !can_v);
+                if (horizontal && !can_h) || at_end {
+                    let _ = g.set_state(gtk::EventSequenceState::Denied);
+                    return;
+                }
+                on.set(true);
+                let _ = g.set_state(gtk::EventSequenceState::Claimed);
+            }
+            let (h0, v0) = start.get();
+            let (h, v) = (sc.hadjustment(), sc.vadjustment());
+            if h.upper() - h.page_size() > 1.0 {
+                h.set_value((h0 - dx).clamp(h.lower(), h.upper() - h.page_size()));
+            }
+            if v.upper() - v.page_size() > 1.0 {
+                v.set_value((v0 - dy).clamp(v.lower(), v.upper() - v.page_size()));
+            }
+        });
+    }
+    {
+        let on = scrolling.clone();
+        g.connect_drag_end(move |_, _, _| on.set(false));
+    }
+    sc.add_controller(g);
+}

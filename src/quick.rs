@@ -380,6 +380,7 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
         .max_content_height(360)
         .propagate_natural_height(true)
         .build();
+    crate::gestures::mouse_drag_scroll(&app_scroll);
     app_page.append(&app_header);
     app_page.append(&app_scroll);
     pages.add_named(&app_page, Some("app"));

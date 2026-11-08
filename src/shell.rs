@@ -42,6 +42,8 @@ pub enum Event {
     NewWindow(i64),
     /// `rusttouch --do <action>` (touchpad gestures, scripts, key bindings)
     Action(String),
+    /// a mouse or touchpad button was pressed (anywhere, in any app)
+    MouseClick,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -91,6 +93,8 @@ pub struct ShellInner {
     osk_visible: Cell<bool>,
     /// when the keyboard last went away (previews wait for the app to grow back)
     kb_hidden_at: Cell<i64>,
+    /// when a mouse button was last pressed (anywhere)
+    last_mouse_click: Cell<i64>,
     /// an app's text field has focus (the input method is active)
     im_active: Cell<bool>,
     osk_gen: Cell<u32>,
@@ -316,6 +320,7 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         osk: RefCell::new(None),
         osk_visible: Cell::new(false),
         kb_hidden_at: Cell::new(0),
+        last_mouse_click: Cell::new(0),
         im_active: Cell::new(false),
         osk_gen: Cell::new(0),
         inhibitor: RefCell::new(None),
@@ -548,6 +553,7 @@ pub fn build(app: &gtk::Application, cfg: Config) -> Shell {
         *shell.inhibitor.borrow_mut() = sensors::inhibit_sleep();
         shell.restart_idle();
         let (_, has_power) = power::start_buttons(tx.clone());
+        power::start_mice(tx.clone());
         if has_power {
             *shell.power_key_inhibitor.borrow_mut() = power::inhibit_power_key();
         }
@@ -762,8 +768,23 @@ fn handle_event(shell: &Shell, ev: Event) {
             text_input(shell, active)
         }
         Event::ShellOutput(name) => {
+            // (the mouse stays on the main screen: the others show a copy)
+            crate::tiling::set_pointer(shell, name.as_deref());
             shell.pin_to(name);
             crate::screens::refresh(shell);
+        }
+        Event::MouseClick => {
+            shell.last_mouse_click.set(glib::monotonic_time());
+            // clicking with a mouse: you have one, so no on-screen keyboard
+            // (clicks on the on-screen keyboard itself don't count)
+            if shell.cfg().on("keyboard_hide_on_mouse") && shell.osk_visible.get() {
+                let s = shell.clone();
+                let _ = glib::timeout_add_local_once(Duration::from_millis(120), move || {
+                    if !crate::kbd::clicked_recently() && s.osk_visible.get() {
+                        s.show_keyboard(false);
+                    }
+                });
+            }
         }
         Event::Layout => crate::tiling::layout_changed(shell),
         Event::NewWindow(id) => crate::tiling::on_new_window(id),
@@ -866,6 +887,12 @@ fn text_input(shell: &Shell, active: bool) {
     let now = glib::monotonic_time();
     if active {
         shell.last_activate.set(now);
+        // a text box clicked with the mouse: no on-screen keyboard
+        if shell.cfg().on("keyboard_hide_on_mouse")
+            && now - shell.last_mouse_click.get() < 1_000_000
+        {
+            return;
+        }
         shell.show_keyboard(true);
     } else if now - shell.last_activate.get() < 400_000 {
         // switching windows: the old window's "field closed" can arrive just
@@ -1075,6 +1102,9 @@ fn reload_config(shell: &Shell) {
     }
     if changed("screen_off_after") || changed("sleep_after") {
         shell.restart_idle();
+    }
+    if changed("mouse_natural_scroll") {
+        crate::tiling::set_pointer(shell, shell_output_name().as_deref());
     }
     if changed("show_cursor") {
         shell.apply_cursor();

@@ -1,2 +1,0 @@
-# PAM service for the rusttouch lock screen
-@include common-auth

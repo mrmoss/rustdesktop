@@ -1,6 +1,0 @@
-[Desktop Entry]
-Name=RustTouch
-Comment=Android-style touch shell (phoc)
-Exec=/usr/local/bin/rusttouch-session
-Type=Application
-DesktopNames=rusttouch

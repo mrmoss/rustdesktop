@@ -1,2 +1,0 @@
-# labwc runs this with sh at startup.
-/usr/local/bin/rusttouch-shell &

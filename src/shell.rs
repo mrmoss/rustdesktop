@@ -829,7 +829,13 @@ fn handle_event(shell: &Shell, ev: Event) {
             }
         }
         Event::Layout => crate::tiling::layout_changed(shell),
-        Event::NewWindow(id) => crate::tiling::on_new_window(id),
+        Event::NewWindow(id) => {
+            // a new window's text box activating by itself follows what you
+            // used last (the launch's longer wait is over: the window is here)
+            shell.launch_focus_until.set(0);
+            shell.note_auto_focus();
+            crate::tiling::on_new_window(id)
+        }
         Event::Action(a) => do_action(shell, &a),
         Event::Idle(what) => match what.as_str() {
             "blank" | "sleep" => {
@@ -1178,6 +1184,16 @@ fn reload_config(shell: &Shell) {
         || old.prefixed("output.") != new.prefixed("output.")
     {
         apply_displays(shell);
+        // the home grid is made for the screen's size: once the new scale
+        // has settled, make it again
+        for ms in [800u64, 2500] {
+            let s = shell.clone();
+            let _ = glib::timeout_add_local_once(Duration::from_millis(ms), move || {
+                if let Some(h) = s.home_ui() {
+                    home::ensure_shape(&h);
+                }
+            });
+        }
     }
     if changed("mirror_fit") {
         crate::screens::restart(shell);
@@ -1375,6 +1391,28 @@ fn watch_touch(w: &gtk::Window) {
             .and_then(|w| w.title())
             .as_deref()
             == Some("rusttouch keyboard");
+        // the button that opens the keyboard: that click is for the keyboard
+        if ev.event_type() == gdk::EventType::ButtonPress {
+            let on_toggle = match (c.widget(), ev.position()) {
+                (Some(w), Some((x, y))) => {
+                    let mut at = w.pick(x, y, gtk::PickFlags::DEFAULT);
+                    let mut found = false;
+                    while let Some(wd) = at {
+                        if wd.has_css_class("osk-toggle") {
+                            found = true;
+                            break;
+                        }
+                        at = wd.parent();
+                    }
+                    found
+                }
+                _ => false,
+            };
+            if on_toggle {
+                crate::kbd::note_click();
+                return glib::Propagation::Proceed;
+            }
+        }
         let touch = match ev.event_type() {
             gdk::EventType::TouchBegin => true,
             gdk::EventType::ButtonPress

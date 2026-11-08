@@ -38,6 +38,7 @@ xwayland enable
 floating_modifier Mod4 normal
 bindsym Mod4+Return exec foot
 bindsym Mod4+q kill
+bindsym Mod1+F4 kill
 bindsym Mod4+f fullscreen toggle
 bindsym Mod4+Left focus left
 bindsym Mod4+Right focus right

@@ -147,6 +147,8 @@ pub fn start_buttons(tx: Sender<Event>) -> (usize, bool) {
 const BTN_LEFT: u16 = 0x110;
 const BTN_RIGHT: u16 = 0x111;
 const BTN_MIDDLE: u16 = 0x112;
+/// a finger on a touchpad (a quick touch is a tap = a click)
+const BTN_TOUCH: u16 = 0x14a;
 
 /// Is input device eventN (with this "13:68" number) a mouse or touchpad -
 /// not a touch screen or pen? (from udev's own notes on it)
@@ -197,14 +199,28 @@ pub fn start_mice(tx: Sender<Event>) {
                     let (tx, watching) = (tx.clone(), watching.clone());
                     std::thread::spawn(move || {
                         let mut buf = [0u8; 24];
+                        let mut touched: Option<std::time::Instant> = None;
                         while f.read_exact(&mut buf).is_ok() {
                             let ty = u16::from_ne_bytes([buf[16], buf[17]]);
                             let code = u16::from_ne_bytes([buf[18], buf[19]]);
                             let value = i32::from_ne_bytes([buf[20], buf[21], buf[22], buf[23]]);
-                            if ty == EV_KEY
-                                && value == 1
-                                && matches!(code, BTN_LEFT | BTN_RIGHT | BTN_MIDDLE)
-                            {
+                            if ty != EV_KEY {
+                                continue;
+                            }
+                            let click = match code {
+                                BTN_LEFT | BTN_RIGHT | BTN_MIDDLE => value == 1,
+                                // tap-to-click: the touchpad sends no button,
+                                // just a finger down and up again quickly
+                                BTN_TOUCH if value == 1 => {
+                                    touched = Some(std::time::Instant::now());
+                                    false
+                                }
+                                BTN_TOUCH if value == 0 => touched
+                                    .take()
+                                    .is_some_and(|t| t.elapsed().as_millis() < 250),
+                                _ => false,
+                            };
+                            if click {
                                 let _ = tx.send(Event::MouseClick);
                                 crate::shell::wake();
                             }

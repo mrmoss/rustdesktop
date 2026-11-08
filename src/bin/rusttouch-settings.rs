@@ -485,7 +485,7 @@ const SEARCH: &[(&str, &str, &str)] = &[
     ("Resolution", "Displays", "mode monitor size"),
     ("Scale", "Displays", "zoom bigger smaller dpi hidpi"),
     (
-        "Other screens show the copy",
+        "Picture position on other screens",
         "Displays",
         "mirror fit fill stretch zoom crop black bars external monitor",
     ),
@@ -1693,12 +1693,12 @@ fn displays(ctx: &Rc<Ctx>) -> gtk::Widget {
         screen_rows.push(choice_row(
             &cfg,
             "mirror_fit",
-            "Other screens show the copy",
+            "Picture position on other screens",
             Some("When the other screen is a different shape"),
             &[
-                ("fit", "Fit: whole picture, black bars"),
-                ("fill", "Fill: edge to edge, edges cut off"),
-                ("exact", "Exact: sharp, pixel for pixel size"),
+                ("fit", "Fit - all of it, with black bars"),
+                ("fill", "Fill - edge to edge, edges cut off"),
+                ("exact", "Sharp - whole-number size, black bars"),
             ],
         ));
     }

@@ -186,6 +186,9 @@ pub fn navbar(shell: &Shell) -> gtk::Box {
     left_slot.add_css_class("nav-slot");
     let kb = gtk::Button::with_label("⌨");
     kb.add_css_class("nav-kb");
+    // (clicking it with the mouse opens the keyboard - the click doesn't
+    // count as "using the mouse", see shell::watch_touch)
+    kb.add_css_class("osk-toggle");
     kb.set_focusable(false);
     kb.set_valign(gtk::Align::Center);
     kb.set_tooltip_text(Some("Keyboard"));

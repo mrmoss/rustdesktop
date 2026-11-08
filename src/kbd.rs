@@ -383,6 +383,12 @@ thread_local! {
     static LAST_CLICK: Cell<i64> = const { Cell::new(0) };
 }
 
+/// A click that's for the keyboard (on it, or on the button that opens it):
+/// it mustn't put the keyboard away.
+pub fn note_click() {
+    LAST_CLICK.with(|c| c.set(glib::monotonic_time()));
+}
+
 /// Was the keyboard itself just clicked (with a mouse)?
 pub fn clicked_recently() -> bool {
     glib::monotonic_time() - LAST_CLICK.with(|c| c.get()) < 500_000

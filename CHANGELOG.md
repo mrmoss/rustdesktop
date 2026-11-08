@@ -2,6 +2,24 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.6.30
+
+- Keyboard, touch vs mouse:
+  - a tap on the touchpad (tap-to-click) counts as a mouse click - it
+    used to go unnoticed, so the on-screen keyboard came up or stayed up;
+  - clicking the ⌨ button with the mouse opens the keyboard (the click no
+    longer counts as "using the mouse" and puts it straight away again),
+    and the text box you were in stays selected;
+  - a newly opened app's text box follows what you used last as soon as
+    its window shows (it used to wait up to 10 seconds, so a tap on a text
+    box in that time could be ignored).
+- Alt+F4 closes the window (sway).
+- Home screen: the spot that lights up (and the pressed icon) is always
+  about an icon's size; at 100% on a big screen it filled a much larger
+  area. The grid is also made again after the display scale changes.
+- Displays: the choices for other screens are now named Fit, Fill and
+  Sharp ("Picture position on other screens").
+
 ## 0.6.29
 
 - On-screen keyboard follows what you use, everywhere: a mouse click or

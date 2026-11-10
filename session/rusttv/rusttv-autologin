@@ -1,0 +1,96 @@
+#!/bin/sh
+# RustTV's auto-login helper: runs as root through pkexec, for the person at
+# the TV. It only ever turns logging in by itself on or off *for that
+# person's own account*, into the RustTV session.
+#   rusttv-autologin enable | disable
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+uid="${PKEXEC_UID:-}"
+[ -n "$uid" ] || { echo "run this through pkexec" >&2; exit 1; }
+user=$(getent passwd "$uid" | cut -d: -f1)
+[ -n "$user" ] || { echo "no user $uid" >&2; exit 1; }
+case "$user" in
+  *[!a-zA-Z0-9._-]*|-*) echo "unusual user name" >&2; exit 1 ;;
+esac
+[ "$uid" -ge 1000 ] || { echo "not for system accounts" >&2; exit 1; }
+what="${1:-}"
+case "$what" in enable|disable) ;; *) echo "usage: rusttv-autologin enable|disable" >&2; exit 2 ;; esac
+
+# set key=value in [section] of an ini file (adds the section/key if missing)
+ini_set() { # file section key value
+  f=$1 sec=$2 key=$3 val=$4
+  [ -f "$f" ] || : > "$f"
+  tmp=$(mktemp "$f.XXXXXX")
+  awk -v sec="[$sec]" -v key="$key" -v val="$val" '
+    function put() { if (insec && !done) { print key "=" val; done = 1 } }
+    /^[[:space:]]*\[/ {
+      put()                               # end of the section: add it there
+      insec = ($0 == sec); if (insec) seen = 1
+      print; next
+    }
+    insec && match($0, "^[[:space:]]*#?[[:space:]]*" key "[[:space:]]*=") {
+      if (!done) { print key "=" val; done = 1 }   # (replaces it, or a commented-out one)
+      next
+    }
+    { print }
+    END { put(); if (!seen) { print sec; print key "=" val } }
+  ' "$f" > "$tmp"
+  chmod 644 "$tmp"
+  mv "$tmp" "$f"
+}
+ini_get() { # file section key
+  awk -v sec="[$2]" -v key="$3" '
+    /^[[:space:]]*\[/ { insec = ($0 == sec); next }
+    insec && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" { sub("^[^=]*=[[:space:]]*", ""); v=$0 }
+    END { print v }' "$1" 2>/dev/null
+}
+
+done_any=0
+# GDM (Ubuntu's login screen)
+for f in /etc/gdm3/custom.conf /etc/gdm/custom.conf; do
+  [ -f "$f" ] || continue
+  if [ "$what" = enable ]; then
+    ini_set "$f" daemon AutomaticLoginEnable true
+    ini_set "$f" daemon AutomaticLogin "$user"
+    # GDM starts the session the account last used: make that RustTV
+    acc=/var/lib/AccountsService/users/$user
+    mkdir -p /var/lib/AccountsService/users
+    ini_set "$acc" User Session rusttv
+    ini_set "$acc" User XSession rusttv
+    chmod 600 "$acc"
+  else
+    if [ "$(ini_get "$f" daemon AutomaticLogin)" = "$user" ]; then
+      ini_set "$f" daemon AutomaticLoginEnable false
+    fi
+  fi
+  done_any=1
+  break
+done
+# LightDM
+if [ $done_any = 0 ] && [ -d /etc/lightdm ]; then
+  mkdir -p /etc/lightdm/lightdm.conf.d
+  f=/etc/lightdm/lightdm.conf.d/50-rusttv-autologin.conf
+  if [ "$what" = enable ]; then
+    printf '# written by RustTV settings\n[Seat:*]\nautologin-user=%s\nautologin-user-timeout=0\nautologin-session=rusttv\n' "$user" > "$f"
+    groupadd -rf autologin 2>/dev/null && gpasswd -a "$user" autologin >/dev/null 2>&1 || true
+  else
+    rm -f "$f"
+  fi
+  done_any=1
+fi
+# SDDM
+if [ $done_any = 0 ] && { [ -d /etc/sddm.conf.d ] || [ -f /etc/sddm.conf ]; }; then
+  mkdir -p /etc/sddm.conf.d
+  f=/etc/sddm.conf.d/50-rusttv-autologin.conf
+  if [ "$what" = enable ]; then
+    printf '# written by RustTV settings\n[Autologin]\nUser=%s\nSession=rusttv.desktop\n' "$user" > "$f"
+  else
+    rm -f "$f"
+  fi
+  done_any=1
+fi
+if [ $done_any = 0 ]; then
+  echo "no supported login screen (GDM, LightDM or SDDM) found" >&2
+  exit 3
+fi

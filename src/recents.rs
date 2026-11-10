@@ -123,7 +123,11 @@ pub fn build(shell: &Shell) -> gtk::Box {
             }
             drag.borrow_mut().subs.clear();
             drag.borrow_mut().groups.clear();
-            let (cw, ch) = card_size(&s);
+            // (on sway: the shape of the space the windows get)
+            let area = tiling::enabled(&s)
+                .then(|| ordered_groups(&s).first().map(|g| (g.rect.w, g.rect.h)))
+                .flatten();
+            let (cw, ch) = card_size(area);
             // room on both sides so the first and last cards can be centered
             let (_, _, sw, _) = shell::screen_size();
             let side = ((sw - cw) / 2).max(28);
@@ -270,18 +274,19 @@ fn attach_snap(scroll: &gtk::ScrolledWindow, row: &gtk::Box, busy: Rc<dyn Fn() -
     });
 }
 
-/// Cards keep the shape of the app area (screen minus bars).
-/// Cards have the shape of the whole screen.
-fn card_size(shell: &Shell) -> (i32, i32) {
-    let _ = shell;
+/// Cards keep the shape of the app area (`area`: w, h - the screen minus
+/// the bars; None: the whole screen), sized by the screen.
+fn card_size(area: Option<(i32, i32)>) -> (i32, i32) {
     let (_, _, sw, sh) = shell::screen_size();
+    let (aw, ah) = area.unwrap_or((sw, sh));
     let (sw, sh) = (f64::from(sw.max(100)), f64::from(sh.max(100)));
+    let (aw, ah) = (f64::from(aw.max(100)), f64::from(ah.max(100)));
     let mut cw = sw * 0.46;
-    let mut ch = cw * sh / sw;
+    let mut ch = cw * ah / aw;
     let max_h = sh * 0.55;
     if ch > max_h {
         ch = max_h;
-        cw = ch * sw / sh;
+        cw = ch * aw / ah;
     }
     (cw as i32, ch as i32)
 }
@@ -394,9 +399,13 @@ fn group_card(
     fixed.add_css_class("rcard-frame");
     fixed.add_css_class("group-frame");
     fixed.set_overflow(gtk::Overflow::Hidden);
-    // the card is a small copy of the whole screen: windows sit where they
-    // are on it (the bars' strips stay dark)
-    let (ox, oy, ow, oh) = shell::screen_size();
+    // the card is a small copy of the space the windows get (the screen
+    // minus the bars): windows sit where they are in it
+    let (ox, oy, ow, oh) = if g.rect.w > 0 && g.rect.h > 0 {
+        (g.rect.x, g.rect.y, g.rect.w, g.rect.h)
+    } else {
+        shell::screen_size()
+    };
     let sx = f64::from(w) / f64::from(ow.max(1));
     let sy = f64::from(h) / f64::from(oh.max(1));
     let gap = if wins.len() > 1 { 1 } else { 0 };
@@ -687,6 +696,7 @@ fn attach_group_drag(
                 let _ = glib::timeout_add_local_once(Duration::from_millis(200), move || r());
             }),
             cancel: Box::new(move || reset()),
+            mouse_up_passes: true,
         },
     );
 }

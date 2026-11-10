@@ -54,6 +54,18 @@ for s in /sys/class/drm/card*-eDP-*/status /sys/class/drm/card*-DSI-*/status; do
   [ -f "$s" ] && [ "$(cat "$s")" = connected ] && { PANEL=$(basename "$(dirname "$s")"); PANEL=${PANEL#*-}; break; }
 done
 
+# NVIDIA's own driver: sway refuses to start on it unless told to (it
+# works on recent drivers, with nvidia-drm modesetting - Ubuntu's default).
+SWAY_GPU=""
+if [ -e /proc/driver/nvidia/version ] || [ -d /sys/module/nvidia_drm ]; then
+  SWAY_GPU="--unsupported-gpu"
+  # (the pointer can be invisible or garbled with NVIDIA's hardware cursor)
+  export WLR_NO_HARDWARE_CURSORS="${WLR_NO_HARDWARE_CURSORS:-1}"
+  if [ "$(cat /sys/module/nvidia_drm/parameters/modeset 2>/dev/null)" = N ]; then
+    echo "rusttouch-session: NVIDIA modesetting is off - sway needs it: add nvidia-drm.modeset=1 to the kernel command line" >&2
+  fi
+fi
+
 case "$COMP" in
 sway)
   RUN="$RT/sway"
@@ -68,7 +80,7 @@ sway)
   # log is kept as sway.log.old
   LOGD="$RT"
   [ -f "$LOGD/sway.log" ] && mv -f "$LOGD/sway.log" "$LOGD/sway.log.old"
-  exec sway -c "$RUN/config" 2>"$LOGD/sway.log"
+  exec sway $SWAY_GPU -c "$RUN/config" 2>"$LOGD/sway.log"
   ;;
 phoc)
   # every app window maximized between the bars, phone-style

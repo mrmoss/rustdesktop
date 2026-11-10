@@ -35,7 +35,7 @@ pub struct HomeInner {
     floating: RefCell<Option<gtk::Widget>>,
     hover: Cell<Option<usize>>,
     /// the grid's columns and rows when it was last drawn
-    shape: Cell<(usize, usize)>,
+    shape: Cell<(usize, usize, i32, i32)>,
 }
 
 pub type Home = Rc<HomeInner>;
@@ -171,8 +171,10 @@ fn dims() -> (usize, usize) {
     let (_, _, w, h) = shell::screen_size();
     let (top, nav) = crate::theme::bar_sizes(&Config::load());
     let usable_h = (h - top - nav - 60).max(CELL_H * 3);
-    let cols = (w / CELL_W).clamp(4, 8) as usize;
-    let rows = (usable_h / CELL_H).clamp(3, 12) as usize;
+    // as many as fit at about an icon's size: cells stay close to the icons
+    // at every display scale (a cap of 8 columns made them huge at 100%)
+    let cols = (w / CELL_W).clamp(4, 24) as usize;
+    let rows = (usable_h / CELL_H).clamp(3, 16) as usize;
     (cols, rows)
 }
 
@@ -191,23 +193,42 @@ pub fn render(h: &Home) {
     }
     let v = layout(&h.shell.cfg());
     let (cols, rows) = dims();
-    h.shape.set((cols, rows));
+    h.shape.set(shape_now());
+    // Each slot fills its share of the screen (so dropping anywhere near a
+    // spot works), but the spot that lights up - and the pressed icon - stays
+    // about an icon's size, whatever the screen size and scale.
+    let (_, _, sw, sh) = shell::screen_size();
+    let (top, nav) = crate::theme::bar_sizes(&h.shell.cfg());
+    let col_w = (sw - 16) / cols.max(1) as i32;
+    let row_h = (sh - top - nav - 40) / rows.max(1) as i32;
+    let spot_w = (col_w.min(CELL_W) - 4).max(40);
+    let spot_h = (row_h.min(CELL_H) - 4).max(40);
     let mut cells = Vec::with_capacity(v.len());
     for (i, id) in v.iter().enumerate() {
+        let slot = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        slot.add_css_class("home-slot");
+        slot.set_hexpand(true);
+        slot.set_vexpand(true);
         let cell = gtk::Box::new(gtk::Orientation::Vertical, 0);
         cell.add_css_class("home-cell");
-        cell.set_hexpand(true);
-        cell.set_vexpand(true);
+        cell.set_size_request(spot_w, spot_h);
+        cell.set_halign(gtk::Align::Center);
+        cell.set_valign(gtk::Align::Center);
+        slot.append(&cell);
         if !id.is_empty() {
             if let Some(t) = tile(h, id) {
-                t.set_valign(gtk::Align::Center);
+                // the tile fills its cell: its pressed look is the same size
+                // as the spot lighting up while you drag an icon
+                t.set_valign(gtk::Align::Fill);
+                t.set_halign(gtk::Align::Fill);
                 t.set_vexpand(true);
+                t.set_hexpand(true);
                 cell.append(&t);
             }
         }
         h.grid
-            .attach(&cell, (i % cols) as i32, (i / cols) as i32, 1, 1);
-        cells.push(cell);
+            .attach(&slot, (i % cols) as i32, (i / cols) as i32, 1, 1);
+        cells.push(slot);
     }
     *h.cells.borrow_mut() = cells;
     h.hint.set_visible(v.iter().all(|x| x.is_empty()));
@@ -217,8 +238,15 @@ pub fn render(h: &Home) {
 /// grid is made at startup, when the screen's size may not be known yet
 /// (then it's laid out for a phone-sized screen, and the first drop - which
 /// redraws it - suddenly changed the grid). Checked again before every drag.
+/// The grid's columns and rows, and the screen size they were made for.
+fn shape_now() -> (usize, usize, i32, i32) {
+    let (cols, rows) = dims();
+    let (_, _, w, hh) = shell::screen_size();
+    (cols, rows, w, hh)
+}
+
 pub fn ensure_shape(h: &Home) {
-    if h.shape.get() != dims() {
+    if h.shape.get() != shape_now() {
         render(h);
     }
 }
@@ -237,15 +265,20 @@ fn cell_at(h: &Home, x: f64, y: f64) -> Option<usize> {
         .position(|c| bounds_contain(c, &h.root, x, y))
 }
 
+/// The icon-sized spot inside a grid slot (what lights up).
+fn spot(slot: Option<&gtk::Box>) -> Option<gtk::Widget> {
+    slot.and_then(|s| s.first_child())
+}
+
 fn set_hover(h: &Home, i: Option<usize>) {
     if h.hover.get() == i {
         return;
     }
     let cells = h.cells.borrow();
-    if let Some(old) = h.hover.get().and_then(|o| cells.get(o)) {
+    if let Some(old) = h.hover.get().and_then(|o| spot(cells.get(o))) {
         old.remove_css_class("drop-target");
     }
-    if let Some(new) = i.and_then(|n| cells.get(n)) {
+    if let Some(new) = i.and_then(|n| spot(cells.get(n))) {
         new.add_css_class("drop-target");
     }
     h.hover.set(i);
@@ -434,7 +467,7 @@ pub fn build(shell: &Shell) -> Home {
         dragging: RefCell::new(None),
         floating: RefCell::new(None),
         hover: Cell::new(None),
-        shape: Cell::new((0, 0)),
+        shape: Cell::new((0, 0, 0, 0)),
     });
 
     // long-press an icon -> drag it around
@@ -452,7 +485,7 @@ pub fn build(shell: &Shell) -> Home {
                 if v[i].is_empty() {
                     return false;
                 }
-                if let Some(c) = h1.cells.borrow().get(i) {
+                if let Some(c) = spot(h1.cells.borrow().get(i)) {
                     c.add_css_class("lifted");
                 }
                 *h1.dragging.borrow_mut() = Some(Dragged::Slot(i));
@@ -466,6 +499,7 @@ pub fn build(shell: &Shell) -> Home {
             cancel: Box::new(move || {
                 cancel(&h4);
             }),
+            mouse_up_passes: false,
         },
     );
 

@@ -103,6 +103,9 @@ fn other_theme_icon(icon: &gio::Icon, px: i32) -> Option<gdk::Paintable> {
 /// Icon + label button used in the drawer and the dock.
 pub fn tile(info: &gio::AppInfo, icon_px: i32) -> gtk::Button {
     let vbox = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    // (centered when the tile is bigger than it, like on the home screen)
+    vbox.set_valign(gtk::Align::Center);
+    vbox.set_halign(gtk::Align::Center);
     let icon = info.icon();
     vbox.append(&icon_image(icon.as_ref(), icon_px));
 

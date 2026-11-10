@@ -94,8 +94,36 @@ pub fn build(shell: &Shell, window: Option<gtk::ApplicationWindow>) -> Lock {
     message.set_margin_top(18);
     message.set_margin_start(24);
     message.set_margin_end(24);
+    // the battery: how full, and whether it's charging
+    let power = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    power.add_css_class("lock-power");
+    power.set_halign(gtk::Align::Center);
+    power.set_margin_top(10);
+    let power_icon = crate::icons::Icon::new(crate::icons::Glyph::Battery(0, false), 20);
+    let power_text = gtk::Label::new(None);
+    power.append(&power_icon.area);
+    power.append(&power_text);
+    {
+        let power = power.clone();
+        shell.on_status(move |st| match st.battery {
+            Some((pct, plugged)) => {
+                power_icon.set(crate::icons::Glyph::Battery(pct, plugged));
+                power_text.set_text(&format!(
+                    "{pct}% · {}",
+                    match (plugged, pct >= 100) {
+                        (true, true) => "Fully charged",
+                        (true, false) => "Charging",
+                        (false, _) => "Not charging",
+                    }
+                ));
+                power.set_visible(true);
+            }
+            None => power.set_visible(false),
+        });
+    }
     cp.append(&time);
     cp.append(&date);
+    cp.append(&power);
     cp.append(&message);
     cp.append(&spacer);
     cp.append(&hint);
@@ -414,6 +442,7 @@ impl LockInner {
             .and_then(|m| monitors.iter().position(|x| *x == m))
             .unwrap_or(0);
         self.take_root();
+        let fit = crate::config::Config::load().get("mirror_fit");
         let mut wins = Vec::new();
         for (i, m) in monitors.iter().enumerate() {
             // (the library destroys these when the lock ends)
@@ -422,10 +451,20 @@ impl LockInner {
             if i == main {
                 w.set_child(Some(&self.root));
             } else {
-                // other screens: just covered
-                let blank = gtk::Box::new(gtk::Orientation::Vertical, 0);
-                blank.add_css_class("lock");
-                w.set_child(Some(&blank));
+                // other screens: a live copy of the lock screen (like the
+                // copy they show of everything else), fitted the same way
+                let cover = gtk::Box::new(gtk::Orientation::Vertical, 0);
+                cover.add_css_class("lock-mirror");
+                let pic = gtk::Picture::for_paintable(&gtk::WidgetPaintable::new(Some(&self.root)));
+                pic.set_content_fit(match fit.as_str() {
+                    "fill" => gtk::ContentFit::Cover,
+                    _ => gtk::ContentFit::Contain,
+                });
+                pic.set_can_shrink(true);
+                pic.set_hexpand(true);
+                pic.set_vexpand(true);
+                cover.append(&pic);
+                w.set_child(Some(&cover));
             }
             s.assign_window_to_monitor(&w, m);
             w.present();

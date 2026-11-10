@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>RustTV</vendor>
+  <action id="dev.rusttv.autologin">
+    <description>Turn logging in by itself into RustTV on or off for your own account</description>
+    <message>RustTV wants to change whether this computer logs you in by itself</message>
+    <!-- The person sitting at the TV (the active local session) may do this
+         for their own account without a password: RustTV has no password
+         prompt for a remote. The helper refuses anything else. -->
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/rusttv-autologin</annotate>
+  </action>
+</policyconfig>

@@ -2,6 +2,329 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.7.19
+
+RustTV:
+
+- Battery (when there is one): its level at the top of the home screen
+  (⚡ when charging, red when low), and a warning over everything when it
+  runs low - again near empty. Settings > Battery: Battery icon on/off,
+  Low battery warning at 5-30% or off.
+- Settings > Look: Accent color (the focus outline and highlights - white,
+  blue, teal, green, yellow, orange, red, pink, purple, slate) and
+  Background (dark, black, accent glow, or a picture from your Pictures
+  folder or the system's wallpapers, dimmed so the cards stand out).
+
+## 0.7.18
+
+RustTV:
+
+- Moving along a row keeps room for the focused card's white outline: going
+  all the way right and back left no longer cuts off its left edge.
+
+## 0.7.17
+
+RustTV:
+
+- Server addresses start with https:// (an address typed without one gets
+  https:// too); type http:// for a server without https.
+- New ready-made launcher: Home Assistant (your own - it asks for the
+  address), with Home Assistant's own icon.
+
+## 0.7.16
+
+RustTV:
+
+- Launcher option "Trust certificate": for a server at home with a
+  home-made certificate (Frigate, a camera, a router on an IP address),
+  Chromium trusts the certificate that server has, so the "Your connection
+  is not private" page stops coming back each time it starts. Only that
+  certificate is trusted - if the server's certificate changes, the warning
+  is back (turn it off and on again to take the new one). Firefox and
+  Waterfox remember "Accept the risk" by themselves.
+
+## 0.7.15
+
+RustTV:
+
+- Frigate's card gets Frigate's own icon, from the Frigate project itself
+  (your server's page may be behind its sign-in or a home-made
+  certificate). A Frigate launcher you added already picks it up.
+- A dark logo on a see-through background (like Frigate's black bird) is
+  put on white, so it doesn't vanish on the card's dark colour.
+
+## 0.7.14
+
+RustTV:
+
+- Simpler key hints at the bottom of the screens, keys in bold:
+  "OK Open · Hold OK Options · Home This screen" on the home screen,
+  "OK Select · Back Back" on the others, "OK Type · Back Cancel" on the
+  keyboard.
+
+## 0.7.13
+
+RustTV:
+
+- Open now finds the app a window belongs to more often - by the snap or
+  Flatpak it runs in, and by looser name matches (snaps name their
+  desktop files "<snap>_<app>") - so the Snap Store and the like show their
+  icon. Opening an app that's open already switches to it in the same way.
+- New ready-made launcher: Frigate (your own camera server - it asks for
+  the address).
+
+## 0.7.12
+
+RustTV:
+
+- A tighter home screen: smaller gaps between the rows and around the
+  clock, slightly smaller cards - Open now, Watch and Apps all fit on a
+  1080p screen without scrolling.
+- Apps in Open now show their icon and name, like in Apps.
+
+## 0.7.11
+
+RustTV:
+
+- Card option "Open for sign-in": opens a launcher as a plain web page (no
+  TV headers, no spatial selecting - they get in the way of some sign-in
+  pages, Hulu's for one) in its usual browser and profile, so the sign-in
+  is kept. Opening it normally afterwards offers to reload it.
+- Turning on Spatial selecting for a launcher in Firefox or Waterfox moves
+  it to Chromium for good: turning it off again no longer switches back to
+  the other browser (with its own, separate sign-in).
+- Reloading or restarting a browser waits until the old one has really
+  quit - starting the new one sooner could lose what it was still saving
+  (sign-ins).
+
+## 0.7.10
+
+RustTV:
+
+- Moving up and down the home screen shows the whole row, its title too:
+  scrolling only as far as the card left "Open now" tucked under the
+  clock, with the tail of its "p" showing (the "white dot").
+
+## 0.7.9
+
+RustTV:
+
+- Picking an open launcher in Open now also asks to reload it when it was
+  edited since it opened (Reload / Open as is).
+- Shorter questions and answers everywhere: "Clear Hulu's history?" -
+  Clear / Cancel, "Remove Plex?" - Remove / Cancel, "Turn on autologin?",
+  card options Switch / Close / Remove, remote buttons Add button / Clear
+  buttons. The action comes first, Cancel has the focus.
+
+## 0.7.8
+
+RustTV:
+
+- Simpler settings: Max open apps (a number; 1 to start with - opening
+  one more closes the oldest), Separate history (on to start with),
+  Default browser, Scale, Autologin; in a launcher: Address, Color, Icon,
+  Reload icon, Send TV headers, Spatial selecting (Chrome-based browsers
+  only), Clear history.
+- Power: Suspend.
+- Auto suspend after 15 minutes to 4 hours with nothing going on (video
+  playing keeps it awake; needs swayidle).
+- Updates: checks and installs system (apt), snap and Flatpak updates,
+  through a small helper (installed by install-rusttv.sh).
+
+## 0.7.7
+
+RustTV:
+
+- Messages ("Opening Hulu...") and the volume pop-up show at the top of
+  the screen - subtitles are at the bottom.
+- Only the card with the focus has the white outline: the mouse pointer
+  (even hidden) lit up a second one when the cards under it moved, e.g.
+  after closing an app from Open now. The focus also comes back to a card
+  when the one it was on goes away.
+- The Open now row is always there, with "Nothing open right now" when
+  nothing is.
+- No stray white dot over the rows (the scrolling areas' edge marks and
+  outline are gone).
+
+## 0.7.6
+
+RustTV:
+
+- A volume pop-up shows how loud it is (or "Muted") for a moment when you
+  turn the volume up or down or mute it - over every app. Turning it up or
+  down while muted unmutes, like a TV. (Over apps it needs gtk4-layer-shell,
+  which install-rusttv.sh now builds RustTV with when it's there - RustTouch
+  needs it too; without it the volume shows on RustTV's own screen.)
+
+## 0.7.5
+
+RustTV:
+
+- Opening a launcher you've edited since it opened asks: reload it with
+  the changes, or just show it as it is.
+- New launchers start out in Chromium (or Chrome), saying they're a TV,
+  with the arrows jumping between buttons - except YouTube, whose TV page
+  is made for the arrows already. ("Browser for new launchers" now starts
+  at Chromium too; launchers you have keep their settings.)
+- In Chromium, saying it's a TV is a switch it's started with, so such
+  launchers keep your Chromium sign-ins; when Chromium is already open
+  with other switches, it's started afresh for the launcher.
+
+## 0.7.4
+
+RustTV:
+
+- Launcher option "Arrow keys jump between buttons": opens it in Chromium
+  (or Chrome) with spatial navigation, so the remote's arrows move between
+  a desktop site's buttons and links (Hulu, Netflix...).
+- Cards showing a service's logo sit on a dark shade of its colour instead
+  of the full, bright colour.
+- Settings > About RustTV opens a page: version, system, browsers found,
+  and where the settings and log are.
+
+## 0.7.3
+
+- RustTouch and RustTV start on NVIDIA's own (proprietary) driver: sway
+  refuses it unless started with --unsupported-gpu, so the session ended
+  straight away at login. Both sessions now pass that when the NVIDIA
+  driver is loaded (and turn off the hardware cursor, which can be
+  invisible on it).
+
+## 0.7.2
+
+RustTV:
+
+- Launchers open with your browser's own profile - your history and
+  sign-ins - instead of an empty one each (Settings > Launchers' sign-ins
+  and history to go back to separate ones). A launcher that says it's a TV
+  keeps a profile of its own.
+- One app at a time closes the other apps once the new one's window shows
+  (no black screen while it starts, and a shared browser isn't caught
+  quitting).
+
+## 0.7.1
+
+RustTV (RustTouch is unchanged):
+
+- Browsers installed as a Flatpak (Waterfox's is) or a snap are found, as
+  well as browsers unpacked in /opt or your home folder.
+- Launcher cards show the service's own icon, found on its page (its big
+  touch icon or web app icons), on its colour - or its colour and name
+  when there's no good one. Edit: turn it off, or look for it again.
+- "Say it's a TV" (per launcher): the browser tells sites it's a TV, so
+  YouTube shows its TV layout, made for a remote. The ready-made YouTube
+  launcher uses it.
+- One app at a time: opening something closes what was open (Settings to
+  turn it off).
+- Settings > Remote buttons: give any button on your remote a job - OK,
+  Back, options, the arrows (in RustTV), Home, close the app, volume (in
+  every app).
+
+## 0.7.0
+
+- New: **RustTV**, a separate home screen for a TV box, made for a remote
+  control (see docs/RUSTTV.md). Its own program (`rusttv`), login session,
+  settings and sway config - RustTouch is unchanged.
+  - rows of big cards: what's open now, launchers ("Watch") and apps;
+    arrows, OK, Back, Home, and hold OK / Menu for a card's options
+  - launchers: web services (Plex, Jellyfin, Emby, Netflix, Hulu, HBO Max,
+    Disney+, Prime Video, YouTube and more, or any address) full screen in
+    Firefox, Waterfox, Chromium or Chrome kiosk mode, each with its own
+    browser profile (own sign-ins), protected video turned on
+  - settings with the remote: launchers, apps, browser, screen size, log in
+    by itself (GDM, LightDM, SDDM), restart / turn off / log out
+  - an on-screen keyboard for the remote
+  - `./install-rusttv.sh` / `./uninstall-rusttv.sh`
+
+## 0.6.30
+
+- Keyboard, touch vs mouse:
+  - a tap on the touchpad (tap-to-click) counts as a mouse click - it
+    used to go unnoticed, so the on-screen keyboard came up or stayed up;
+  - clicking the ⌨ button with the mouse opens the keyboard (the click no
+    longer counts as "using the mouse" and puts it straight away again),
+    and the text box you were in stays selected;
+  - a newly opened app's text box follows what you used last as soon as
+    its window shows (it used to wait up to 10 seconds, so a tap on a text
+    box in that time could be ignored).
+- Alt+F4 closes the window (sway).
+- Home screen: the spot that lights up (and the pressed icon) is always
+  about an icon's size; at 100% on a big screen it filled a much larger
+  area. The grid is also made again after the display scale changes.
+- Displays: the choices for other screens are now named Fit, Fill and
+  Sharp ("Picture position on other screens").
+
+## 0.6.29
+
+- On-screen keyboard follows what you use, everywhere: a mouse click or
+  typing on a real keyboard puts it away, and text boxes then don't bring
+  it up by themselves (an app opening in one, switching windows); touching
+  anything - or a text box, even one that's already active - brings it
+  back. Real-keyboard typing is noticed from the text box's text changing
+  (RustTouch never reads your keys). The Super key and Escape count as the
+  real keyboard, so Super twice no longer pops the keyboard up.
+- Lock screen: other screens show a copy of it instead of staying black.
+- Displays: how other screens show the copy - Fit (whole picture, black
+  bars), Fill (edge to edge, edges cut off) or Exact (sharp, pixel for
+  pixel).
+- Home screen: the grid's spots stay about an icon's size at every display
+  scale (at 100% there were only 8 huge columns), and the pressed look of
+  an icon is now the same size as the spot that lights up when you drag one.
+- Recents: the cards have the shape of the space apps get (screen minus the
+  bars), with no dark strip above the windows; this mattered most at bigger
+  scales.
+- Mouse pointer: a resize arrow over the grab areas between windows, and a
+  hand over things you can click (also in Settings).
+
+## 0.6.28
+
+- Lock screen: the battery level and whether it's charging, under the date.
+- Keyboard: an app opened with the mouse that starts in a text box doesn't
+  bring up the on-screen keyboard (tap the box to get it). Same for
+  switching back to an app with the mouse from recents.
+- The Super key again leaves recents (or the window arranger) instead of
+  jumping to another app.
+- Recents with the mouse: drag a card up to close it, like a finger; drag
+  it sideways or down (or press and hold first) to move the window into a
+  group.
+- Pull-down: the mouse's back button leaves the Wi-Fi, Bluetooth, Sound or
+  tray app page; forward goes back into it.
+- Rotate: turning it on no longer makes an external monitor go black for a
+  second. On sway the screen is turned through sway itself, and only when
+  it really needs turning (wlr-randr re-sent every monitor's settings).
+
+## 0.6.27
+
+- Escape closes the app drawer, the pull-down, recents and the window
+  arranger (on sway, Escape is only taken while one of them shows).
+- The Windows/Super key on its own opens recents (Super + another key
+  still does that key's job).
+- Settings: Escape and the mouse's back button go back (closing an open
+  choice list first); the mouse's forward button goes forward again.
+- Mouse: dragging a window in the window arranger, or an icon or card,
+  works right away with the mouse - no press-and-hold first, just like
+  touch. Recents no longer drag-scrolls with the mouse (it got in the way).
+- Keyboard: clicking a text box with the mouse hides the on-screen keyboard
+  even if a tap had brought it up; tapping a text box after clicking it
+  brings the keyboard back sooner (half a second after a click).
+
+## 0.6.26
+
+- Mouse: the pointer stays on the main screen. Other screens only show a
+  copy, but sway counted them as more room, so the pointer wandered onto
+  them ("wrapping" left/right and up/down).
+- Mouse: drag lists to scroll them like a finger does - the app drawer,
+  recents, the pull-down's lists (GTK only drag-scrolls with touch).
+  Pressing and holding first still moves icons and cards.
+- Settings > Mouse & touchpad (new): natural scrolling (on by default), the
+  mouse pointer (moved here from Displays), and "Mouse click hides the
+  keyboard".
+- On-screen keyboard: clicking with a mouse anywhere puts it away, and a
+  text box clicked with the mouse doesn't bring it up (on by default;
+  Settings > Keyboard or Mouse & touchpad). Clicking the keyboard itself
+  doesn't count. RustTouch only looks at mouse button presses for this
+  (install.sh gives it access to mice and touchpads, like the buttons).
+
 ## 0.6.25
 
 - Security follow-up: PAM's answer callback checks everything before

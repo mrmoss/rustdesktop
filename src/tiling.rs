@@ -66,11 +66,37 @@ pub fn enabled(shell: &shell::ShellInner) -> bool {
 }
 
 /// Watch sway for new windows / layout changes.
+/// Mice and touchpads: the pointer stays on the main screen (the other
+/// screens only show a copy, so it used to wander off and "wrap" onto them),
+/// and the scroll direction from Settings > Mouse.
+pub fn set_pointer(shell: &Shell, main: Option<&str>) {
+    if !enabled(shell) {
+        return;
+    }
+    let natural = if shell.cfg().on("mouse_natural_scroll") {
+        "enabled"
+    } else {
+        "disabled"
+    };
+    let mut cmd = format!(
+        "input type:pointer natural_scroll {natural}; input type:touchpad natural_scroll {natural}"
+    );
+    if let Some(m) =
+        main.filter(|m| !m.is_empty() && m.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+    {
+        cmd += &format!(
+            "; input type:pointer map_to_output {m}; input type:touchpad map_to_output {m}"
+        );
+    }
+    sway::run(&cmd);
+}
+
 pub fn start(shell: &Shell) {
     if !enabled(shell) {
         return;
     }
     eprintln!("rusttouch: sway found - split screen available");
+    set_pointer(shell, shell::shell_output_name().as_deref());
     // Apps that can draw their own title bar (most GTK/Qt apps) are asked to,
     // so they get a close button - sway's own title bars have none.
     sway::run(r#"for_window [shell="xdg_shell"] border csd"#);
@@ -782,11 +808,19 @@ fn divider_window(shell: &Shell, d: &Divider, out: Rect) -> gtk::ApplicationWind
         });
     }
     area.add_controller(g);
-    w.set_cursor_from_name(Some(if d.side_by_side {
-        "col-resize"
+    // the resize arrow while the mouse is over it (see shell::base_cursor)
+    w.add_css_class(if d.side_by_side {
+        "cursor-col-resize"
     } else {
-        "row-resize"
-    }));
+        "cursor-row-resize"
+    });
+    w.set_cursor_from_name(if crate::shell::cursor_hidden() {
+        Some("none")
+    } else if d.side_by_side {
+        Some("col-resize")
+    } else {
+        Some("row-resize")
+    });
     w.present();
     w
 }
@@ -822,6 +856,7 @@ pub fn arrange(shell: &Shell) {
     w.set_child(Some(&arrange_content(shell, &scr)));
     w.present();
     STATE.with(|s| s.borrow_mut().arrange = Some(w));
+    shell::sync_escape();
     set_layout(shell, Vec::new(), Vec::new(), Rect::default()); // handles would sit on top
 }
 
@@ -830,8 +865,13 @@ pub fn close_arrange() -> bool {
     let had = w.is_some();
     if let Some(w) = w {
         w.destroy();
+        shell::sync_escape();
     }
     had
+}
+
+pub fn arrange_open() -> bool {
+    STATE.with(|s| s.borrow().arrange.is_some())
 }
 
 fn rearrange_soon(shell: &Shell) {

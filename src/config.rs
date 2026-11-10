@@ -119,6 +119,11 @@ pub const KEYS: &[Key] = &[
         help: "double press: same choices (anything but nothing delays the short press by 0.3s)",
     },
     Key {
+        name: "mirror_fit",
+        default: "fit",
+        help: "fit | fill | exact  (how other screens show the copy: whole picture with black bars, filled edge to edge with the overflow cut off, or sharp pixel-exact size)",
+    },
+    Key {
         name: "show_cursor",
         default: "auto",
         help: "auto | on | off  (mouse pointer over rusttouch; auto = while a mouse is used)",
@@ -157,6 +162,16 @@ pub const KEYS: &[Key] = &[
         name: "bars_autohide_delay",
         default: "3",
         help: "seconds the auto-hiding bars stay after you bring them back or touch them",
+    },
+    Key {
+        name: "mouse_natural_scroll",
+        default: "on",
+        help: "on | off  (on: scrolling moves the page like a finger does - \"natural\" scrolling; off: the classic way)",
+    },
+    Key {
+        name: "keyboard_hide_on_mouse",
+        default: "on",
+        help: "on | off  (the on-screen keyboard follows what you use: a mouse click or typing on a real keyboard puts it away and text boxes don't bring it up; touching brings it back)",
     },
     Key {
         name: "insecure_lock",

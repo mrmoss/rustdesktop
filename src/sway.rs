@@ -14,6 +14,7 @@ const RUN_COMMAND: u32 = 0;
 const GET_WORKSPACES: u32 = 1;
 const SUBSCRIBE: u32 = 2;
 const GET_TREE: u32 = 4;
+const GET_OUTPUTS: u32 = 3;
 /// The biggest answer from sway that's read (16 MB).
 const MAX_REPLY: usize = 16 * 1024 * 1024;
 
@@ -62,6 +63,21 @@ fn request(kind: u32, payload: &str) -> Option<Value> {
     let _ = s.set_read_timeout(Some(Duration::from_secs(2)));
     send(&mut s, kind, payload)?;
     recv(&mut s).map(|r| r.1)
+}
+
+/// The screens sway has: (name, transform: "normal", "90", ...).
+pub fn outputs() -> Vec<(String, String)> {
+    request(GET_OUTPUTS, "")
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|o| {
+            Some((
+                o["name"].as_str()?.to_string(),
+                o["transform"].as_str().unwrap_or("normal").to_string(),
+            ))
+        })
+        .collect()
 }
 
 /// Run sway commands (";"-separated). True if all of them worked.

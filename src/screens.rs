@@ -60,14 +60,31 @@ pub fn refresh(shell: &Shell) {
             eprintln!("rusttouch: mirroring needs wl-mirror (sudo apt install wl-mirror)");
             return;
         }
-        eprintln!("rusttouch: mirroring {main} on {o}");
+        let fit = match shell.cfg().get("mirror_fit").as_str() {
+            "fill" => "cover",
+            "exact" => "exact",
+            _ => "fit",
+        };
+        eprintln!("rusttouch: mirroring {main} on {o} ({fit})");
         if let Some(c) = sys::spawn(
             "wl-mirror",
-            &["--fullscreen-output", o.as_str(), main.as_str()],
+            &[
+                "--scaling",
+                fit,
+                "--fullscreen-output",
+                o.as_str(),
+                main.as_str(),
+            ],
         ) {
             MIRRORS.with(|m| m.borrow_mut().insert(o.clone(), c));
         }
     }
+}
+
+/// Start the mirrors over (their settings changed).
+pub fn restart(shell: &Shell) {
+    stop();
+    refresh(shell);
 }
 
 /// Stop mirroring (shell exit).
@@ -75,6 +92,7 @@ pub fn stop() {
     MIRRORS.with(|m| {
         for (_, mut c) in m.borrow_mut().drain() {
             let _ = c.kill();
+            let _ = c.wait();
         }
     });
 }

@@ -7,3 +7,7 @@
 # them too, which is worse.)
 SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEY}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Power Button", TAG+="uaccess"
+# Mice and touchpads: RustTouch only looks at their button presses, so that
+# clicking with a mouse can put the on-screen keyboard away.
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_TOUCHSCREEN}!="1", ENV{ID_INPUT_TABLET}!="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_TOUCHPAD}=="1", TAG+="uaccess"

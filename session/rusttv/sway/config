@@ -1,0 +1,59 @@
+# sway config for RustTV. RustTV is the home screen (on the workspace
+# "home"); every app opens full screen on a workspace of its own. Your own
+# additions: ~/.config/rusttv/sway.conf (included at the end).
+
+default_border none
+default_floating_border none
+hide_edge_borders --i3 both
+gaps inner 0
+gaps outer 0
+font pango:sans 12
+focus_follows_mouse no
+mouse_warping none
+focus_on_window_activation focus
+# the pointer hides after a few seconds still (air mice, touchpads)
+seat * hide_cursor 3000
+output * bg #000000 solid_color
+
+# everything full screen, like a TV; dialogs float over their app
+for_window [app_id=".*"] fullscreen enable
+for_window [class=".*"] fullscreen enable
+for_window [window_type="dialog"] fullscreen disable, floating enable
+for_window [window_role="dialog"] fullscreen disable, floating enable
+for_window [app_id="dev.rusttv.TV"] move container to workspace home
+
+# start on the home screen
+workspace home
+exec /usr/local/bin/rusttv
+
+# --- the remote -------------------------------------------------------
+# Home (and the Windows key) comes back to RustTV from any app
+bindsym XF86HomePage exec /usr/local/bin/rusttv --do home
+bindsym --release Super_L exec /usr/local/bin/rusttv --do home
+bindsym --release Super_R exec /usr/local/bin/rusttv --do home
+bindsym Mod4+h exec /usr/local/bin/rusttv --do home
+# close the app on screen
+bindsym Mod1+F4 kill
+bindsym Mod4+q kill
+# volume
+# (RustTV changes it and shows the volume pop-up; straight to wpctl if
+# RustTV isn't running)
+bindsym XF86AudioRaiseVolume exec /usr/local/bin/rusttv --do volume-up || wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 5%+
+bindsym XF86AudioLowerVolume exec /usr/local/bin/rusttv --do volume-down || wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
+bindsym XF86AudioMute exec /usr/local/bin/rusttv --do mute || wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+# (play/pause and the other media keys go to the app on screen)
+# Your remote's own buttons: Settings > Remote buttons in RustTV (kept in
+# ~/.config/rusttv/remote-keys.conf, included at the end).
+
+# while RustTV learns a remote button, no key is taken by sway
+mode "rusttv-keys" {
+    bindsym --release --no-warn Pause mode default
+}
+
+# keyboard and mouse: as usual
+input type:keyboard xkb_numlock enabled
+input type:touchpad tap enabled
+input type:touchpad natural_scroll enabled
+
+# apps that use the desktop portals (file pickers, screen sharing)
+exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY SWAYSOCK XDG_CURRENT_DESKTOP XDG_SESSION_TYPE 2>/dev/null || true

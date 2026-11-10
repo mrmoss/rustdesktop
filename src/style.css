@@ -185,6 +185,7 @@ button.join-btn { background: @rd_accent; color: @rd_accent_fg; font-weight: 700
 .home { color: #fff; }
 .home .tile { color: #fff; }
 .home-cell { border-radius: 18px; margin: 2px; }
+.home-cell > .home-tile { border-radius: 18px; }
 .home-cell.drop-target { background: rgba(255, 255, 255, 0.18); }
 .home-cell.lifted { opacity: 0.3; }
 .floating-icon { opacity: 0.9; }
@@ -229,6 +230,8 @@ button.join-btn { background: @rd_accent; color: @rd_accent_fg; font-weight: 700
 /* invisible touch strips that bring auto-hidden bars back */
 .edge-strip { min-height: 10px; background: rgba(0, 0, 0, 0.01); }
 .lock-message { font-size: 16px; opacity: 0.9; }
+.lock-mirror { background: #000; }
+.lock-power { font-size: 16px; opacity: 0.85; }
 
 /* ---- split screen (sway) ---- */
 .split-divider { background: transparent; }

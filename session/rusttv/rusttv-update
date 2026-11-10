@@ -1,0 +1,31 @@
+#!/bin/sh
+# RustTV's update helper: runs as root through pkexec, for the person at the
+# TV. It only updates what's installed, from the sources already set up.
+#   rusttv-update refresh   # fetch the package lists (apt-get update)
+#   rusttv-update upgrade   # install the updates: apt, snaps, system Flatpaks
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export DEBIAN_FRONTEND=noninteractive
+LOG=/var/log/rusttv-update.log
+case "${1:-}" in
+  refresh)
+    apt-get update -q >>"$LOG" 2>&1 || { echo "couldn't fetch the package lists (see $LOG)" >&2; exit 1; }
+    ;;
+  upgrade)
+    echo "== $(date) upgrade" >>"$LOG"
+    if command -v apt-get >/dev/null; then
+      apt-get update -q >>"$LOG" 2>&1 || true
+      # (keeps your changed settings files; new ones only where untouched)
+      apt-get -y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+        dist-upgrade >>"$LOG" 2>&1 || { echo "the system update failed (see $LOG)" >&2; exit 1; }
+      apt-get -y -q autoremove >>"$LOG" 2>&1 || true
+    fi
+    if command -v snap >/dev/null; then
+      snap refresh >>"$LOG" 2>&1 || echo "(snap refresh had trouble, see $LOG)" >&2
+    fi
+    if command -v flatpak >/dev/null; then
+      flatpak update --system -y --noninteractive >>"$LOG" 2>&1 || echo "(flatpak update had trouble, see $LOG)" >&2
+    fi
+    ;;
+  *) echo "usage: rusttv-update refresh|upgrade" >&2; exit 2 ;;
+esac

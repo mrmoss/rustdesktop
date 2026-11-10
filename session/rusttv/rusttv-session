@@ -1,0 +1,55 @@
+#!/bin/sh
+# Login-manager entry point for RustTV: sway with RustTV's own config.
+# Your own sway additions: ~/.config/rusttv/sway.conf (included at the end).
+# Environment for apps: ~/.config/rusttv/env (sourced).
+export XDG_CURRENT_DESKTOP=rusttv:wlroots
+export XDG_SESSION_DESKTOP=rusttv
+export XDG_SESSION_TYPE=wayland
+export MOZ_ENABLE_WAYLAND=1
+export QT_QPA_PLATFORM="wayland;xcb"
+export GDK_BACKEND="wayland,x11"
+# Flatpak apps (and browsers) in the app list
+case ":${XDG_DATA_DIRS:-/usr/local/share:/usr/share}:" in
+  *flatpak/exports/share*) ;;
+  *) export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" ;;
+esac
+[ -f "$HOME/.config/rusttv/env" ] && . "$HOME/.config/rusttv/env"
+
+if ! command -v sway >/dev/null; then
+  echo "rusttv: sway isn't installed (sudo apt install sway)" >&2
+  exit 1
+fi
+
+# RustTV's private runtime folder: $XDG_RUNTIME_DIR/rusttv (or ~/.cache/rusttv-run)
+if [ -n "$XDG_RUNTIME_DIR" ] && [ -d "$XDG_RUNTIME_DIR" ] && [ -O "$XDG_RUNTIME_DIR" ]; then
+  RT="$XDG_RUNTIME_DIR/rusttv"
+else
+  mkdir -p "${HOME:?}/.cache"
+  RT="$HOME/.cache/rusttv-run"
+fi
+(umask 077; mkdir -p "$RT")
+if [ -L "$RT" ] || [ ! -O "$RT" ]; then
+  echo "rusttv: $RT isn't a folder of yours - not starting" >&2
+  exit 1
+fi
+chmod 700 "$RT"
+
+# NVIDIA's own driver: sway refuses to start on it unless told to (it
+# works on recent drivers, with nvidia-drm modesetting - Ubuntu's default).
+SWAY_GPU=""
+if [ -e /proc/driver/nvidia/version ] || [ -d /sys/module/nvidia_drm ]; then
+  SWAY_GPU="--unsupported-gpu"
+  # (the pointer can be invisible or garbled with NVIDIA's hardware cursor)
+  export WLR_NO_HARDWARE_CURSORS="${WLR_NO_HARDWARE_CURSORS:-1}"
+  if [ "$(cat /sys/module/nvidia_drm/parameters/modeset 2>/dev/null)" = N ]; then
+    echo "rusttv-session: NVIDIA modesetting is off - sway needs it: add nvidia-drm.modeset=1 to the kernel command line" >&2
+  fi
+fi
+
+{
+  cat /usr/local/share/rusttv/sway/config
+  [ -f "$HOME/.config/rusttv/remote-keys.conf" ] && echo "include $HOME/.config/rusttv/remote-keys.conf"
+  [ -f "$HOME/.config/rusttv/sway.conf" ] && echo "include $HOME/.config/rusttv/sway.conf"
+} > "$RT/sway-config"
+[ -f "$RT/sway.log" ] && mv -f "$RT/sway.log" "$RT/sway.log.old"
+exec sway $SWAY_GPU -c "$RT/sway-config" 2>"$RT/sway.log"

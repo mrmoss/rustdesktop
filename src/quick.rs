@@ -1,6 +1,6 @@
 //! Pull-down "shade": time/date, toggles, sliders, power.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -380,6 +380,7 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
         .max_content_height(360)
         .propagate_natural_height(true)
         .build();
+    crate::gestures::mouse_drag_scroll(&app_scroll);
     app_page.append(&app_header);
     app_page.append(&app_scroll);
     pages.add_named(&app_page, Some("app"));
@@ -685,6 +686,54 @@ pub fn build(shell: &Shell) -> (gtk::Box, gtk::Box) {
     shell
         .quick
         .on_open(move || p.set_visible_child_name("main"));
+
+    // the mouse's back/forward buttons: out of a list (or a tray app's page)
+    // and back into it again
+    {
+        let forward: Rc<RefCell<Option<Rc<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+        let back = gtk::GestureClick::new();
+        back.set_button(0);
+        back.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let (p, n, s, fw) = (pages.clone(), nets.clone(), shell.clone(), forward.clone());
+        back.connect_pressed(move |g, _, _, _| {
+            let now = p
+                .visible_child_name()
+                .map(|n| n.to_string())
+                .unwrap_or_default();
+            match g.current_button() {
+                8 if now != "main" => {
+                    let f: Rc<dyn Fn()> = if now == "list" {
+                        let (p, n, kind) = (p.clone(), n.clone(), netlist::kind(&n));
+                        Rc::new(move || {
+                            p.set_visible_child_name("list");
+                            netlist::open(&n, kind);
+                        })
+                    } else {
+                        let p = p.clone();
+                        Rc::new(move || p.set_visible_child_name(&now))
+                    };
+                    *fw.borrow_mut() = Some(f);
+                    s.sheet_keyboard(shell::Overlay::Quick, false);
+                    p.set_visible_child_name("main");
+                    let _ = g.set_state(gtk::EventSequenceState::Claimed);
+                }
+                9 if now == "main" => {
+                    let f = fw.borrow_mut().take();
+                    if let Some(f) = f {
+                        f();
+                        let _ = g.set_state(gtk::EventSequenceState::Claimed);
+                    }
+                }
+                _ => {}
+            }
+        });
+        panel.add_controller(back);
+        // a new trip into the pull-down starts with nothing to go forward to
+        let fw = forward.clone();
+        shell.quick.on_open(move || {
+            fw.borrow_mut().take();
+        });
+    }
 
     // › next to the volume slider: the Sound page
     let (p, n) = (pages.clone(), nets.clone());

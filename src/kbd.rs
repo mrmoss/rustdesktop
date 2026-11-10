@@ -379,6 +379,22 @@ struct State {
 }
 
 thread_local! {
+    /// when the keyboard was last clicked with a mouse
+    static LAST_CLICK: Cell<i64> = const { Cell::new(0) };
+}
+
+/// A click that's for the keyboard (on it, or on the button that opens it):
+/// it mustn't put the keyboard away.
+pub fn note_click() {
+    LAST_CLICK.with(|c| c.set(glib::monotonic_time()));
+}
+
+/// Was the keyboard itself just clicked (with a mouse)?
+pub fn clicked_recently() -> bool {
+    glib::monotonic_time() - LAST_CLICK.with(|c| c.get()) < 500_000
+}
+
+thread_local! {
     static STATE: RefCell<State> = RefCell::new(State::default());
 }
 
@@ -485,6 +501,16 @@ fn build(shell: &Shell, landscape: bool) -> gtk::ApplicationWindow {
     // Overlay: above apps and our menus. Zone: apps move up out of its way.
     layer::setup(&win, Layer::Overlay, a, Zone::Auto, KeyboardMode::None);
     layer::set_monitor(&win, shell::shell_monitor().as_ref());
+    // (clicking the keyboard itself with the mouse doesn't put it away)
+    let clicks = gtk::EventControllerLegacy::new();
+    clicks.set_propagation_phase(gtk::PropagationPhase::Capture);
+    clicks.connect_event(|_, ev| {
+        if ev.event_type() == gtk::gdk::EventType::ButtonPress {
+            LAST_CLICK.with(|c| c.set(glib::monotonic_time()));
+        }
+        glib::Propagation::Proceed
+    });
+    win.add_controller(clicks);
 
     let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
     root.add_css_class("rt-osk");

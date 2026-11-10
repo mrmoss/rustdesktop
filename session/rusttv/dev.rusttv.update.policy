@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>RustTV</vendor>
+  <action id="dev.rusttv.update">
+    <description>Install system, snap and Flatpak updates</description>
+    <message>RustTV wants to install updates</message>
+    <!-- The person sitting at the TV (the active local session) may do this
+         without a password (only updates of what is installed): RustTV has no password
+         prompt for a remote. -->
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/rusttv-update</annotate>
+  </action>
+</policyconfig>

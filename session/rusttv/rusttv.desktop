@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=RustTV
+Comment=TV home screen for a remote control (sway)
+Exec=/usr/local/bin/rusttv-session
+Type=Application
+DesktopNames=rusttv

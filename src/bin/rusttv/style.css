@@ -1,0 +1,172 @@
+/* RustTV: big, dark, readable from the sofa. What has the focus is bright
+   and outlined - that's how you see where the remote is. */
+
+window.rusttv {
+  background: linear-gradient(160deg, #10141f 0%, #0a0c12 60%, #120e1a 100%);
+  color: #f2f2f5;
+  font-size: 22px;
+}
+
+.home, .page {
+  padding: 28px 64px 16px 64px;
+}
+
+/* top bar */
+.top { margin-bottom: 12px; }
+.clock { font-size: 48px; font-weight: 300; }
+.date { font-size: 24px; opacity: 0.7; margin-left: 12px; }
+
+.top-button, button.top-button {
+  font-size: 22px;
+  padding: 10px 24px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  box-shadow: none;
+  color: #f2f2f5;
+}
+
+/* rows of cards */
+.row-title { font-size: 24px; font-weight: 600; opacity: 0.85; margin-left: 6px; }
+.cards { padding: 10px 12px 12px 12px; }
+
+button.card {
+  min-width: 288px;
+  min-height: 162px;
+  border-radius: 18px;
+  border: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  background: #2a2f3d;
+  color: #ffffff;
+  padding: 12px;
+  outline: 4px solid transparent;
+  outline-offset: 4px;
+  transition: outline-color 120ms, box-shadow 120ms, filter 120ms;
+}
+button.card.app-card { min-width: 216px; background: #262b38; }
+button.card.add-card {
+  min-width: 180px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+}
+button.card.running-card { background: #33384a; }
+.card-name { font-size: 34px; font-weight: 700; }
+.card-name-small { font-size: 22px; font-weight: 600; }
+.card-sub { font-size: 18px; opacity: 0.8; }
+.card-picture { border-radius: 24px; }
+button.card.with-picture .card-name-small { font-size: 20px; }
+.add-card .card-name { font-size: 54px; font-weight: 300; }
+
+/* (only the focus - not where the mouse pointer happens to be, which
+   lit up a second card when the cards under a hidden pointer moved) */
+button.card:focus, button.card:focus-visible {
+  outline-color: #ffffff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+  filter: brightness(1.12);
+}
+
+/* settings and lists */
+.page-title { font-size: 44px; font-weight: 300; margin-bottom: 24px; }
+.list { min-width: 900px; }
+.heading {
+  font-size: 20px;
+  font-weight: 700;
+  opacity: 0.6;
+  margin: 22px 0 4px 18px;
+}
+
+button.row {
+  min-height: 64px;
+  padding: 8px 24px;
+  border-radius: 14px;
+  border: none;
+  box-shadow: none;
+  background: rgba(255, 255, 255, 0.05);
+  color: #f2f2f5;
+  font-size: 24px;
+}
+button.row .value { opacity: 0.7; font-size: 22px; }
+button.row:focus, button.row:focus-visible {
+  background: #f2f2f5;
+  color: #10141f;
+}
+
+/* the remote keyboard */
+.typed {
+  font-size: 36px;
+  padding: 16px 24px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+}
+button.key {
+  min-width: 72px;
+  min-height: 64px;
+  font-size: 28px;
+  border-radius: 12px;
+  border: none;
+  box-shadow: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f2f2f5;
+}
+button.key.on { background: rgba(255, 255, 255, 0.25); }
+button.key.done { background: #2f6fed; }
+button.key:focus, button.key:focus-visible {
+  background: #f2f2f5;
+  color: #10141f;
+}
+
+.note { font-size: 20px; opacity: 0.75; margin: 6px 18px 14px 18px; }
+.hint { font-size: 18px; opacity: 0.5; margin-top: 8px; }
+
+.toast {
+  margin-top: 40px;
+  padding: 16px 32px;
+  border-radius: 999px;
+  background: rgba(20, 22, 30, 0.95);
+  color: #ffffff;
+  font-size: 22px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+/* No scroll decorations: the scroll bars, the "more this way" edge marks
+   and the scroll-stop glow (a stray white dot over the rows), and no
+   outline on the scrolling areas themselves - only cards show the focus. */
+scrollbar { opacity: 0; min-width: 0; min-height: 0; }
+scrolledwindow undershoot, scrolledwindow overshoot,
+scrolledwindow undershoot.top, scrolledwindow undershoot.bottom,
+scrolledwindow undershoot.left, scrolledwindow undershoot.right,
+scrolledwindow overshoot.top, scrolledwindow overshoot.bottom,
+scrolledwindow overshoot.left, scrolledwindow overshoot.right {
+  background: none;
+  box-shadow: none;
+  border: none;
+}
+scrolledwindow junction { background: none; }
+scrolledwindow, viewport, scrolledwindow:focus, viewport:focus,
+scrolledwindow:focus-visible, viewport:focus-visible { outline: none; box-shadow: none; }
+
+/* the volume pop-up (over every app) */
+window.osd-window { background: transparent; }
+.osd {
+  background: rgba(16, 18, 26, 0.94);
+  color: #f2f2f5;
+  border-radius: 999px;
+  padding: 18px 34px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+}
+.osd-icon { font-size: 34px; }
+.osd-pct { font-size: 26px; font-weight: 600; }
+.osd levelbar trough { min-height: 14px; border-radius: 999px; background: rgba(255, 255, 255, 0.18); border: none; }
+.osd levelbar block.filled { background: #f2f2f5; border-radius: 999px; border: none; }
+.osd levelbar block.empty { background: transparent; border: none; }
+window.osd-window.muted .osd-pct { opacity: 0.7; }
+
+/* "nothing open" in the Open now row (not a card you can pick) */
+.placeholder-card {
+  min-width: 288px;
+  min-height: 162px;
+  border-radius: 18px;
+  border: 2px dashed rgba(255, 255, 255, 0.15);
+  color: rgba(242, 242, 245, 0.45);
+  font-size: 22px;
+}

@@ -160,6 +160,7 @@ pub fn build(
         .max_content_height(360)
         .propagate_natural_height(true)
         .build();
+    crate::gestures::mouse_drag_scroll(&scroll);
     root.append(&scroll);
 
     let status = gtk::Label::new(None);
@@ -306,6 +307,11 @@ fn sync_power(nl: &List) {
     nl.power_sync.set(true);
     nl.power.set_active(state == Some(true));
     nl.power_sync.set(false);
+}
+
+/// Which list it shows (or last showed).
+pub fn kind(nl: &List) -> Kind {
+    nl.kind.get()
 }
 
 pub fn open(nl: &List, kind: Kind) {

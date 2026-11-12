@@ -16,9 +16,11 @@ its own choice on the login screen; installing one doesn't change the other, or 
 > had very little human review or real-world testing. It is a hobby project. Keep your usual
 > desktop installed as well, and log out to pick it again whenever you like.
 
-<p align="center"><img src="docs/screenshots/rusttouch/home.png" width="45%" alt="RustTouch home screen">&nbsp;<img src="docs/screenshots/rusttouch/split.png" width="45%" alt="RustTouch split screen"></p>
+| RustTouch | RustTV |
+|---|---|
+| ![RustTouch home screen](docs/screenshots/rusttouch/home.png) | ![RustTV home screen](docs/screenshots/rusttv/home.png) |
 
-More pictures of RustTouch are in [its guide](docs/RUSTTOUCH.md#pictures).
+More pictures in each guide: [RustTouch](docs/RUSTTOUCH.md#pictures) · [RustTV](docs/RUSTTV.md#pictures).
 
 ## Install
 
@@ -30,7 +32,7 @@ Other Linux with GTK 4.10 or newer and sway may work, but isn't tested.
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS   # with SHA256SUMS from the same release: must say "OK"
-sudo apt install ./rustdesktop_0.8.5_amd64.deb
+sudo apt install ./rustdesktop_0.8.6_amd64.deb
 ```
 
 It replaces the older `rusttouch` package if you have it, and installs sway and the helpers both
@@ -93,7 +95,7 @@ Intel/AMD and ARM on Ubuntu 24.04 (they work on 26.04 too) and puts them in a **
 
 ```sh
 # 1. bump `version` in Cargo.toml (and CHANGELOG.md) and commit it
-git tag v0.8.5
+git tag v0.8.6
 git push --tags
 # 2. wait for the "release" workflow, look over the draft under Releases, then publish it
 ```

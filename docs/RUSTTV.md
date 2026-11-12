@@ -7,16 +7,9 @@ made for a remote control. It's a separate program with its own login
 session, settings (`~/.config/rusttv`) and sway config; installing it
 doesn't change RustTouch.
 
-```
- ┌───────────────────────────────────────────────────────────┐
- │ RustTV                                      12:30   ▮ 80% │
- │ Open now   [ Hulu ]                                       │
- │ Watch      [ Plex ] [ Jellyfin ] [ Netflix ] [ YouTube ] +│
- │ Apps       [ Kodi ] [ Settings ]                         +│
- │                                                           │
- │ OK Open   Hold OK Options   Home This screen              │
- └───────────────────────────────────────────────────────────┘
-```
+![RustTV home screen](screenshots/rusttv/home.png)
+
+More in [Pictures](#pictures).
 
 ## Install
 
@@ -216,8 +209,19 @@ Turn it off with **Settings → Keyboard in apps**; give a remote button
 
 ## Pictures
 
-No pictures of RustTV yet. To take some on the TV (grim is in `./deps.sh`):
-`grim docs/screenshots/rusttv/home.png` from a terminal or over SSH
+| Home screen | Settings |
+|---|---|
+| ![Home screen](screenshots/rusttv/home.png) | ![Settings](screenshots/rusttv/settings.png) |
+| **Wi-Fi** | **Sound** |
+| ![Wi-Fi](screenshots/rusttv/wifi.png) | ![Sound](screenshots/rusttv/sound.png) |
+| **The keyboard in apps** (over a web page's sign-in) | |
+| ![The keyboard for apps](screenshots/rusttv/keyboard.png) | |
+
+These are mock-ups drawn from RustTV's own style sheet and layout (the same
+colours, sizes and text), with the launchers' plain colour cards rather than
+the services' icons. To replace them with real ones, on the TV
+(grim is in `./deps.sh`):
+`grim docs/screenshots/rusttv/home.png`, from a terminal or over SSH
 (`SWAYSOCK=$(ls /run/user/$(id -u)/sway-ipc.*) WAYLAND_DISPLAY=wayland-1 grim ...`).
 
 ## Not there yet

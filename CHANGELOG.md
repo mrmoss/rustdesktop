@@ -2,6 +2,16 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.8.6
+
+- Pictures of RustTV (`docs/screenshots/rusttv/`): the home screen,
+  Settings, Wi-Fi, Sound and the keyboard for apps. They're mock-ups drawn
+  from RustTV's own style sheet and layout; `docs/RUSTTV.md` says how to
+  take real ones on the TV.
+- The README shows one picture of each desktop; each guide has the rest
+  (`docs/RUSTTOUCH.md` now shows its Settings picture too).
+- The `.tar.gz` brings RustTV's pictures along with its guide.
+
 ## 0.8.5
 
 - The `.deb` is now **`rustdesktop`** (`rustdesktop_<version>_<arch>.deb`)

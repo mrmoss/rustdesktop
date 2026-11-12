@@ -653,7 +653,7 @@ dependencies = [
 
 [[package]]
 name = "rustdesktop"
-version = "0.8.5"
+version = "0.8.6"
 dependencies = [
  "gio-unix",
  "gtk4",

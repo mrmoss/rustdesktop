@@ -1,6 +1,6 @@
 //! Minimal PAM password check for the lock screen (same approach as swaylock).
 //! Links against the runtime libpam.so.0 directly, so no -dev package needed.
-//! Service name "rusttouch" (/etc/pam.d/rusttouch, installed by install.sh); if that
+//! Service name "rusttouch" (/etc/pam.d/rusttouch, installed by install-rusttouch.sh); if that
 //! file is missing PAM falls back to /etc/pam.d/other, which on Ubuntu also
 //! uses common-auth.
 

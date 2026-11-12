@@ -1,5 +1,6 @@
 #!/bin/sh
-# Build and install rusttouch system-wide, adding a "rusttouch (touch)" login session.
+# Build and install RustTouch system-wide, adding a "RustTouch" login session.
+# RustTouch is separate from RustTV: installing one doesn't change the other.
 # In a downloaded release (.tar.gz) the programs are already built: it just
 # installs them (no Rust needed).
 set -e
@@ -15,10 +16,6 @@ else
   . ./ensure-layer-shell.sh
   cargo build --release
   BIN=target/release
-fi
-# replace an old "rdesk" install (RustTouch's old name)
-if [ -e /usr/local/bin/rdesk ] || [ -e /usr/share/wayland-sessions/rdesk.desktop ]; then
-  ./uninstall-rdesk.sh
 fi
 sudo install -Dm755 "$BIN/rusttouch"                 /usr/local/bin/rusttouch
 sudo install -Dm755 "$BIN/rusttouch-settings"        /usr/local/bin/rusttouch-settings

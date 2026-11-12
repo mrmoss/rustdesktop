@@ -27,6 +27,8 @@ pub struct Launcher {
     /// trust the certificate the site has now, even if it's home-made (a
     /// camera or server at home): no "not private" warning each time
     pub trust_cert: bool,
+    /// this app's own remote buttons (Edit > Remote buttons)
+    pub keys: Vec<RemoteKey>,
 }
 
 #[derive(Clone, Debug)]
@@ -59,6 +61,16 @@ pub struct Config {
     pub battery_show: bool,
     /// warn when the battery is at or below this % (0: never)
     pub battery_warn: u32,
+    /// the screen RustTV is on ("" = automatic); the others show a copy
+    pub main_output: String,
+    /// how the other screens show the copy: "fit", "fill", "exact"
+    pub mirror_fit: String,
+    /// picked resolutions: (screen, "1920x1080@60.000Hz")
+    pub resolutions: Vec<(String, String)>,
+    /// the on-screen keyboard shows in apps' text boxes
+    pub app_keyboard: bool,
+    /// going home pauses what's playing
+    pub pause_on_home: bool,
 }
 
 /// Accent colours: (colour, name). White is the starting one.
@@ -89,6 +101,36 @@ pub struct RemoteKey {
     pub action: String,
     pub keyval: u32,
     pub name: String,
+    /// its evdev key code (0: not known)
+    pub code: u32,
+}
+
+/// Remote buttons from the settings file.
+fn parse_keys(v: &Value) -> Vec<RemoteKey> {
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|k| {
+            let name = k["name"].as_str()?.to_string();
+            // (it ends up in sway's config: key names only)
+            if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                return None;
+            }
+            Some(RemoteKey {
+                action: k["action"].as_str()?.to_string(),
+                keyval: k["keyval"].as_u64()? as u32,
+                name,
+                code: k["code"].as_u64().unwrap_or(0) as u32,
+            })
+        })
+        .collect()
+}
+
+fn keys_json(keys: &[RemoteKey]) -> Value {
+    keys.iter()
+        .map(|k| json!({"action": k.action, "keyval": k.keyval, "name": k.name, "code": k.code}))
+        .collect::<Vec<_>>()
+        .into()
 }
 
 /// A ready-made launcher: (name, address, colour). An empty address means
@@ -299,6 +341,7 @@ pub fn new_launcher(id: String, name: &str, url: &str, color: &str, browser: Str
         tv: true,
         spatial: !url.contains("youtube.com"),
         trust_cert: false,
+        keys: Vec::new(),
     }
 }
 
@@ -328,6 +371,11 @@ impl Default for Config {
             wallpaper: String::new(),
             battery_show: true,
             battery_warn: 15,
+            main_output: String::new(),
+            mirror_fit: "fit".into(),
+            resolutions: Vec::new(),
+            app_keyboard: true,
+            pause_on_home: true,
         }
     }
 }
@@ -370,6 +418,7 @@ impl Config {
                 tv: l["tv"].as_bool().unwrap_or(false),
                 spatial: l["spatial"].as_bool().unwrap_or(false),
                 trust_cert: l["trust_cert"].as_bool().unwrap_or(false),
+                keys: parse_keys(&l["keys"]),
             });
         }
         // (the browser for new launchers: Chromium to start with, from 0.7.5)
@@ -411,29 +460,25 @@ impl Config {
                 .unwrap_or_else(|| "dark".into()),
             wallpaper: str_of(&v, "wallpaper"),
             battery_show: v["battery_show"].as_bool().unwrap_or(true),
+            main_output: str_of(&v, "main_output"),
+            app_keyboard: v["app_keyboard"].as_bool().unwrap_or(true),
+            pause_on_home: v["pause_on_home"].as_bool().unwrap_or(true),
+            mirror_fit: Some(str_of(&v, "mirror_fit"))
+                .filter(|f| ["fit", "fill", "exact"].contains(&f.as_str()))
+                .unwrap_or_else(|| "fit".into()),
+            resolutions: v["resolutions"]
+                .as_object()
+                .map(|m| {
+                    m.iter()
+                        .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
+                        .collect()
+                })
+                .unwrap_or_default(),
             battery_warn: v["battery_warn"]
                 .as_u64()
                 .map(|n| n.min(50) as u32)
                 .unwrap_or(15),
-            keys: v["keys"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|k| {
-                    let name = k["name"].as_str()?.to_string();
-                    // (it ends up in sway's config: key names only)
-                    if name.is_empty()
-                        || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-                    {
-                        return None;
-                    }
-                    Some(RemoteKey {
-                        action: k["action"].as_str()?.to_string(),
-                        keyval: k["keyval"].as_u64()? as u32,
-                        name,
-                    })
-                })
-                .collect(),
+            keys: parse_keys(&v["keys"]),
         }
     }
 
@@ -444,6 +489,7 @@ impl Config {
                 "browser": l.browser, "color": l.color,
                 "picture": l.picture, "tv": l.tv, "spatial": l.spatial,
                 "trust_cert": l.trust_cert,
+                "keys": keys_json(&l.keys),
             })).collect::<Vec<_>>(),
             "max_apps": self.max_apps,
             "auto_suspend": self.auto_suspend,
@@ -453,9 +499,16 @@ impl Config {
             "wallpaper": self.wallpaper,
             "battery_show": self.battery_show,
             "battery_warn": self.battery_warn,
-            "keys": self.keys.iter().map(|k| json!({
-                "action": k.action, "keyval": k.keyval, "name": k.name,
-            })).collect::<Vec<_>>(),
+            "main_output": self.main_output,
+            "app_keyboard": self.app_keyboard,
+            "pause_on_home": self.pause_on_home,
+            "mirror_fit": self.mirror_fit,
+            "resolutions": self
+                .resolutions
+                .iter()
+                .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+                .collect::<serde_json::Map<String, Value>>(),
+            "keys": keys_json(&self.keys),
             "apps": self.apps,
             "scale": self.scale,
             "new_browser": self.browser,

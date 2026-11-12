@@ -1,6 +1,7 @@
 #!/bin/sh
 # Make sure the gtk4-layer-shell C library is installed (needed by the
-# default `layer` feature). Sourced by install.sh and run-nested.sh.
+# default `layer` feature). Sourced by install-rusttouch.sh,
+# install-rusttv.sh, deps.sh and the justfile.
 #   26.04+: apt install libgtk4-layer-shell-dev
 #   24.04 : not packaged -> build from source into /usr/local
 # (1.1 or newer is needed: the lock screen uses its session lock)

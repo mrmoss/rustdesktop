@@ -1,5 +1,5 @@
 #!/bin/sh
-# Remove RustTouch from the system. Keeps your settings in ~/.config/rusttouch
+# Remove RustTouch from the system (RustTV is left alone). Keeps your settings in ~/.config/rusttouch
 # and your login items in ~/.config/autostart (GNOME uses those too).
 # Leaves apt packages and a source-built gtk4-layer-shell alone.
 set -e
@@ -18,6 +18,8 @@ sudo rm -f \
   /etc/xdg/xdg-desktop-portal/rusttouch-portals.conf \
   /usr/local/lib/systemd/user/rusttouch-session.target \
   /etc/udev/rules.d/70-rusttouch-buttons.rules
-sudo rm -rf /usr/local/share/rusttouch /usr/local/lib/rusttouch
+sudo rm -rf /usr/local/share/rusttouch
+# (the copy of gtk4-layer-shell a downloaded release brought: RustTV uses it too)
+[ -e /usr/local/bin/rusttv ] || sudo rm -rf /usr/local/lib/rusttouch
 sudo udevadm control --reload-rules 2>/dev/null || true
 echo "RustTouch removed. Settings are still in ~/.config/rusttouch (delete it to start fresh)."

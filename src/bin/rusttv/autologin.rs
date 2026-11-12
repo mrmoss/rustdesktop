@@ -1,13 +1,21 @@
 //! Logging in by itself, straight into RustTV (no password at start-up -
 //! like a TV). The login screen's own settings say who logs in by itself;
 //! changing them needs the system's permission, which the small helper
-//! /usr/local/libexec/rusttv-autologin has (install-rusttv.sh puts it there,
+//! /usr/local/libexec/rusttv-autologin has (/usr/libexec from the .deb) (install-rusttv.sh puts it there,
 //! with a polkit rule that lets the person at the TV turn it on or off for
 //! *their own* account only).
 
 use std::process::Command;
 
-pub const HELPER: &str = "/usr/local/libexec/rusttv-autologin";
+/// Where the helper is: /usr/local (install-rusttv.sh) or /usr (the .deb).
+pub fn helper_path() -> &'static str {
+    const LOCAL: &str = "/usr/local/libexec/rusttv-autologin";
+    if std::path::Path::new(LOCAL).exists() {
+        LOCAL
+    } else {
+        "/usr/libexec/rusttv-autologin"
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum State {
@@ -97,11 +105,11 @@ pub fn state() -> State {
 /// Turn it on or off (asks the helper; blocking - run it off the main
 /// thread). Err: why it didn't work.
 pub fn set(on: bool) -> Result<(), String> {
-    if !std::path::Path::new(HELPER).exists() {
+    if !std::path::Path::new(helper_path()).exists() {
         return Err("the auto-login helper isn't installed (run install-rusttv.sh)".into());
     }
     let out = Command::new("pkexec")
-        .arg(HELPER)
+        .arg(helper_path())
         .arg(if on { "enable" } else { "disable" })
         .output()
         .map_err(|e| format!("couldn't ask for permission: {e}"))?;

@@ -190,7 +190,21 @@ pub fn open(tv: &Tv) {
     });
     body.append(&profile);
 
+    body.append(&ui::heading("Connections"));
+    for (label, page) in [
+        ("Wi-Fi", crate::netui::wifi_page as fn(&Tv)),
+        ("Bluetooth", crate::netui::bluetooth_page),
+        ("Sound", crate::netui::sound_page),
+    ] {
+        let t = tv.clone();
+        let (b, _) = ui::row(label, "", move || page(&t));
+        body.append(&b);
+    }
+
     body.append(&ui::heading("Screen"));
+    let t = tv.clone();
+    let (scr, _) = ui::row("Screens", "", move || crate::netui::display_page(&t));
+    body.append(&scr);
     let t = tv.clone();
     let (scale, scale_v) = ui::row("Scale", &scale_name(&cfg.scale), move || {
         let cur = t.cfg().scale;
@@ -295,6 +309,20 @@ pub fn open(tv: &Tv) {
     });
     body.append(&susp);
     let t = tv.clone();
+    let (akbd, akbd_v) = ui::row("Keyboard in apps", on_off(cfg.app_keyboard), move || {
+        t.change(|c| c.app_keyboard = !c.app_keyboard);
+    });
+    body.append(&akbd);
+    let t = tv.clone();
+    let (poh, poh_v) = ui::row(
+        "Pause when going home",
+        on_off(cfg.pause_on_home),
+        move || {
+            t.change(|c| c.pause_on_home = !c.pause_on_home);
+        },
+    );
+    body.append(&poh);
+    let t = tv.clone();
     let (upd, _) = ui::row("Updates", "", move || updates_page(&t));
     body.append(&upd);
 
@@ -337,6 +365,8 @@ pub fn open(tv: &Tv) {
         }
         auto_v.set_text(&autologin_text(&autologin::state()));
         susp_v.set_text(&minutes_text(c.auto_suspend));
+        akbd_v.set_text(on_off(c.app_keyboard));
+        poh_v.set_text(on_off(c.pause_on_home));
     });
     tv.push_page(&pg, None, Some(refresh));
 }
@@ -814,6 +844,9 @@ pub fn edit_launcher(tv: &Tv, id: &str) {
     });
     body.append(&right);
     let (t, i) = (tv.clone(), id.clone());
+    let (rb, _) = ui::row("Remote buttons", "", move || app_remote_page(&t, &i));
+    body.append(&rb);
+    let (t, i) = (tv.clone(), id.clone());
     let (forget, _) = ui::row("Clear history", "", move || {
         let Some(l) = launcher(&t, &i) else { return };
         if launch::uses_own_profile(&l, t.cfg().own_profile) {
@@ -969,7 +1002,10 @@ pub fn remote_page(tv: &Tv) {
                 &t,
                 label,
                 vec![
-                    ("Add button".into(), Rc::new(move |t: &Tv| learn(t, &a1))),
+                    (
+                        "Add button".into(),
+                        Rc::new(move |t: &Tv| learn(t, &a1, None)),
+                    ),
                     (
                         "Clear buttons".into(),
                         Rc::new(move |t: &Tv| set_keys(t, |k| k.retain(|k| k.action != a2))),
@@ -998,13 +1034,18 @@ fn set_keys(tv: &Tv, f: impl FnOnce(&mut Vec<crate::config::RemoteKey>)) {
 
 /// "Press the button for ...": the next key pressed gets the job (10
 /// seconds; Back on the screen's list doesn't count - every key is taken).
-fn learn(tv: &Tv, action: &str) {
+/// `app`: a launcher's own button (its id), else one for everywhere.
+fn learn(tv: &Tv, action: &str, app: Option<String>) {
+    let what = if app.is_some() {
+        crate::remote::app_label(action)
+    } else {
+        crate::remote::label(action)
+    };
     let root = gtk::Box::new(gtk::Orientation::Vertical, 24);
     root.add_css_class("page");
     root.set_valign(gtk::Align::Center);
     let t = gtk::Label::new(Some(&format!(
-        "Press the button on your remote for:\n{}",
-        crate::remote::label(action)
+        "Press the button on your remote for:\n{what}"
     )));
     t.add_css_class("page-title");
     t.set_justify(gtk::Justification::Center);
@@ -1020,8 +1061,8 @@ fn learn(tv: &Tv, action: &str) {
     let done = std::rc::Rc::new(std::cell::Cell::new(false));
     crate::remote::learning(true);
     let (t2, d2) = (tv.clone(), done.clone());
-    let a = action.to_string();
-    let keys: Rc<dyn Fn(gtk::gdk::Key) -> bool> = Rc::new(move |key| {
+    let (a, what) = (action.to_string(), what.to_string());
+    let keys: Rc<dyn Fn(gtk::gdk::Key, u32) -> bool> = Rc::new(move |key, code| {
         if d2.replace(true) {
             return true;
         }
@@ -1031,18 +1072,37 @@ fn learn(tv: &Tv, action: &str) {
             t2.toast("RustTV can't use that button");
             return true;
         };
+        // (a button that sends the app the very same key would go round
+        // and round)
+        if crate::remote::send_code(&a).is_some_and(|c| c == code) {
+            t2.toast("That button already sends that key");
+            return true;
+        }
         use gtk::glib::translate::IntoGlib;
         let k = crate::config::RemoteKey {
             action: a.clone(),
             keyval: key.into_glib(),
             name: name.clone(),
+            code,
         };
-        // (a button has one job)
-        set_keys(&t2, |ks| {
-            ks.retain(|x| x.keyval != k.keyval);
-            ks.push(k);
-        });
-        t2.toast(&format!("{name}: {}", crate::remote::label(&a)));
+        // (a button has one job - in an app, or everywhere)
+        match &app {
+            Some(id) => {
+                let id = id.clone();
+                t2.change(|c| {
+                    if let Some(l) = c.launchers.iter_mut().find(|l| l.id == id) {
+                        l.keys.retain(|x| x.keyval != k.keyval);
+                        l.keys.push(k);
+                    }
+                });
+                crate::app_keys_changed(&t2);
+            }
+            None => set_keys(&t2, |ks| {
+                ks.retain(|x| x.keyval != k.keyval);
+                ks.push(k);
+            }),
+        }
+        t2.toast(&format!("{name}: {what}"));
         true
     });
     tv.push(&root, Some(keys));
@@ -1054,6 +1114,63 @@ fn learn(tv: &Tv, action: &str) {
             t3.toast("No button pressed - nothing changed");
         }
     });
+}
+
+/// A launcher's own remote buttons.
+pub fn app_remote_page(tv: &Tv, id: &str) {
+    let body = ui::list();
+    let id = id.to_string();
+    let fill = {
+        let (t, body, id) = (tv.clone(), body.clone(), id.clone());
+        Rc::new(move || {
+            while let Some(c) = body.first_child() {
+                body.remove(&c);
+            }
+            let note = gtk::Label::new(Some(
+                "Buttons with a job in this app only - they work while it's on screen.",
+            ));
+            note.add_css_class("note");
+            note.set_wrap(true);
+            note.set_xalign(0.0);
+            body.append(&note);
+            let (t2, i2) = (t.clone(), id.clone());
+            let (add, _) = ui::row("Add button", "＋", move || {
+                let opts = crate::remote::APP_ACTIONS
+                    .iter()
+                    .map(|a| (a.0.to_string(), a.1.to_string()))
+                    .collect();
+                let i3 = i2.clone();
+                ui::choose(&t2, "Job", opts, "", move |t, job| {
+                    learn(t, &job, Some(i3.clone()));
+                });
+            });
+            body.append(&add);
+            let keys = launcher(&t, &id).map(|l| l.keys).unwrap_or_default();
+            for k in keys {
+                let (t2, i2, kv) = (t.clone(), id.clone(), k.keyval);
+                let (b, _) = ui::row(&k.name, crate::remote::app_label(&k.action), move || {
+                    let (i3, name) = (i2.clone(), "Forget this button?".to_string());
+                    ui::confirm(&t2, &name, "Forget", move |t| {
+                        let i4 = i3.clone();
+                        t.change(|c| {
+                            if let Some(l) = c.launchers.iter_mut().find(|l| l.id == i4) {
+                                l.keys.retain(|x| x.keyval != kv);
+                            }
+                        });
+                        crate::app_keys_changed(t);
+                    });
+                });
+                body.append(&b);
+            }
+        })
+    };
+    fill();
+    let title = launcher(tv, &id)
+        .map(|l| format!("{} - remote buttons", l.name))
+        .unwrap_or_else(|| "Remote buttons".into());
+    let pg = ui::page(&title, &body);
+    let f = fill.clone();
+    tv.push_page(&pg, None, Some(Rc::new(move || f())));
 }
 
 /// About RustTV: the version, where things are kept, what it found.

@@ -2,6 +2,102 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.8.5
+
+- The `.deb` is now **`rustdesktop`** (`rustdesktop_<version>_<arch>.deb`)
+  and has both desktops: RustTouch and RustTV (RustTV's session, its sway
+  config, and its autologin and update helpers in `/usr/libexec` with their
+  polkit rules). It replaces the old `rusttouch` package: `apt install`
+  swaps it over, keeping your settings.
+- The download is `rustdesktop-<version>-linux-<cpu>.tar.gz`, with RustTV
+  built too, and `install-rusttv.sh` / `uninstall-rusttv.sh` in it.
+- The Cargo package is `rustdesktop`; the programs keep their names
+  (`rusttouch`, `rusttouch-settings`, `rusttv`).
+- RustTV finds its helpers in `/usr/local/libexec` (installed from source)
+  or `/usr/libexec` (the `.deb`).
+- Uninstalling one desktop leaves the bundled gtk4-layer-shell copy in place
+  while the other still uses it.
+- The build workflow checks that `rusttv` from the `.deb` finds its
+  gtk4-layer-shell too.
+
+## 0.8.4
+
+The project is now **RustDesktop** (the repository: RustTouch and RustTV).
+The programs, the `.deb` and the Cargo package keep their names.
+
+- `install.sh` is now `install-rusttouch.sh`, and `uninstall.sh` is
+  `uninstall-rusttouch.sh` (next to `install-rusttv.sh` and
+  `uninstall-rusttv.sh`). `just install-tv` / `just uninstall-tv` for RustTV.
+- Removed `uninstall-rdesk.sh` (and the install script no longer looks for
+  the old rdesk install), `run-windowed.sh` and `run-nested.sh` (and
+  `just try` / `just nested`). `just build-windowed` still makes the
+  windowed preview build. `ensure-layer-shell.sh` and `build-layer-shell.sh`
+  stay: the install scripts, `deps.sh` and the release builds use them.
+- `./deps.sh` installs RustTV's helpers too (Chromium, pkexec, openssl).
+- Docs: a new README for the whole project; RustTouch's guide moved to
+  `docs/RUSTTOUCH.md`, its pictures to `docs/screenshots/rusttouch/`;
+  `docs/RUSTTV.md` brought up to date (install, media buttons, pause when
+  going home, all the `--do` jobs).
+- The build workflow also checks RustTV's session scripts.
+
+## 0.8.3
+
+RustTV:
+
+- Going back home pauses what was playing in the app (Settings > Pause
+  when going home to turn it off).
+- More jobs for remote buttons: play / pause, back and forward 10 seconds,
+  previous, next, stop - for whatever is playing (through MPRIS, which
+  Firefox, Chromium and media players offer).
+- Each launcher can have its own remote buttons (Edit > Remote buttons),
+  working while it's on screen: the media jobs, sending the app a key
+  (Space, the arrows, Enter, Esc, F, M, K, J, L, Page Up/Down - the site's
+  own shortcuts), or Home, close, keyboard, volume. Elsewhere those buttons
+  keep their usual job.
+
+## 0.8.2
+
+RustTV:
+
+- An on-screen keyboard for apps: it comes up at the bottom when a text
+  box on a web page (or in an app) gets the focus. The remote's arrows move
+  around its keys, OK types one, Back puts it away; a box above the keys
+  shows what's typed so far. Typing on a real keyboard puts it away and the
+  keys go straight to the page. Settings > Keyboard in apps turns it off;
+  a remote button can be given "Show the keyboard" (Settings > Remote
+  buttons) to bring it back in the same text box.
+  (RustTV is the input method; Chromium launchers are started with its
+  Wayland text-input switched on. Over apps it needs gtk4-layer-shell, like
+  the volume pop-up.)
+
+## 0.8.1
+
+RustTV:
+
+- Sound: the volume is a row with − and + (5% a press, like the remote)
+  and a bar; it follows the remote's volume buttons while it's open, and
+  Mute too.
+- The on-screen keyboard's Shift: once for the next letter only, twice in
+  a row for caps lock (⇪), once more to turn it off.
+
+## 0.8.0
+
+RustTV:
+
+- Settings > Connections:
+  - Wi-Fi: turn it on or off, scan, connect (the password typed with the
+    remote, shown as dots - the eye key shows it), disconnect, forget.
+  - Bluetooth: turn it on or off, search for devices (8 seconds), connect
+    (pairs first), disconnect, rename, forget. Keyboards, mice and game
+    pads aren't trusted to reconnect by themselves, like in RustTouch.
+  - Sound: volume, mute, the output and input to use, and a Bluetooth
+    headset's microphone on or off.
+- Settings > Screen > Screens: with more than one screen, which one RustTV
+  is on (automatic: the TV over a laptop's own screen) - the others show a
+  copy of it (Fit / Fill / Sharp); each screen's resolution.
+- (Wi-Fi, Bluetooth and sound work the same way as RustTouch's - much of
+  it is RustTouch's own code.)
+
 ## 0.7.19
 
 RustTV:

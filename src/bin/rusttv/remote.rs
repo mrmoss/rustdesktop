@@ -24,10 +24,78 @@ pub const ACTIONS: &[(&str, &str, bool)] = &[
     ("right", "Right", false),
     ("home", "Home (back to RustTV from any app)", true),
     ("close", "Close the app on screen", true),
+    ("keyboard", "Show the keyboard (in a text box)", true),
     ("volume-up", "Volume up", true),
     ("volume-down", "Volume down", true),
     ("mute", "Mute", true),
+    ("play-pause", "Play / pause", true),
+    ("seek-back", "Back 10 seconds", true),
+    ("seek-forward", "Forward 10 seconds", true),
+    ("previous", "Previous", true),
+    ("next", "Next", true),
+    ("stop", "Stop", true),
 ];
+
+/// Jobs a button can have in one app (Edit > Remote buttons, on a
+/// launcher): the media ones, sending the app a key (the app's own
+/// shortcut), and the everywhere ones.
+pub const APP_ACTIONS: &[(&str, &str)] = &[
+    ("play-pause", "Play / pause"),
+    ("seek-back", "Back 10 seconds"),
+    ("seek-forward", "Forward 10 seconds"),
+    ("previous", "Previous"),
+    ("next", "Next"),
+    ("stop", "Stop"),
+    ("key:space", "Send Space"),
+    ("key:left", "Send Left arrow"),
+    ("key:right", "Send Right arrow"),
+    ("key:up", "Send Up arrow"),
+    ("key:down", "Send Down arrow"),
+    ("key:enter", "Send Enter"),
+    ("key:esc", "Send Esc"),
+    ("key:f", "Send F (full screen)"),
+    ("key:m", "Send M (mute)"),
+    ("key:k", "Send K (pause)"),
+    ("key:j", "Send J (back)"),
+    ("key:l", "Send L (forward)"),
+    ("key:pageup", "Send Page Up"),
+    ("key:pagedown", "Send Page Down"),
+    ("home", "Home"),
+    ("close", "Close the app"),
+    ("keyboard", "Show the keyboard"),
+    ("volume-up", "Volume up"),
+    ("volume-down", "Volume down"),
+    ("mute", "Mute"),
+];
+
+/// "key:space" -> the key's evdev code (what's sent to the app).
+pub fn send_code(action: &str) -> Option<u32> {
+    Some(match action.strip_prefix("key:")? {
+        "space" => 57,
+        "left" => 105,
+        "right" => 106,
+        "up" => 103,
+        "down" => 108,
+        "enter" => 28,
+        "esc" => 1,
+        "f" => 33,
+        "m" => 50,
+        "k" => 37,
+        "j" => 36,
+        "l" => 38,
+        "pageup" => 104,
+        "pagedown" => 109,
+        _ => return None,
+    })
+}
+
+pub fn app_label(action: &str) -> &'static str {
+    APP_ACTIONS
+        .iter()
+        .find(|a| a.0 == action)
+        .map(|a| a.1)
+        .unwrap_or("")
+}
 
 /// What the built-in keys are, for the settings page.
 pub fn built_in(action: &str) -> &'static str {
@@ -38,7 +106,9 @@ pub fn built_in(action: &str) -> &'static str {
         "up" | "down" | "left" | "right" => "the arrow keys",
         "home" => "Home, the Windows key",
         "close" => "Alt+F4",
+        "keyboard" => "(shows by itself in a text box)",
         "volume-up" | "volume-down" | "mute" => "the volume keys",
+        "play-pause" | "previous" | "next" | "stop" => "the media keys (to the app on screen)",
         _ => "",
     }
 }
@@ -134,4 +204,47 @@ pub fn learning(on: bool) {
             "mode default"
         });
     }
+}
+
+thread_local! {
+    /// the app buttons bound now (for the app on screen)
+    static APP_BOUND: std::cell::RefCell<Vec<RemoteKey>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The app on screen changed: its own buttons are bound while it shows
+/// (`--do app-key NAME`), and the previous app's are given back (to their
+/// everywhere job, if they have one, or to the apps).
+pub fn app_on_screen(keys: &[RemoteKey], global: &[RemoteKey]) {
+    if !sway::available() {
+        return;
+    }
+    let old = APP_BOUND.with(|b| b.borrow().clone());
+    if old == keys {
+        return;
+    }
+    for k in &old {
+        if keys.iter().any(|n| n.name == k.name) {
+            continue;
+        }
+        match global
+            .iter()
+            .find(|g| g.name == k.name && everywhere(&g.action))
+        {
+            Some(g) => {
+                sway::run(&binding(g));
+            }
+            None => {
+                sway::run(&format!("unbindsym {}", k.name));
+            }
+        }
+    }
+    for k in keys {
+        sway::run(&format!(
+            "bindsym --no-warn {} exec {} --do app-key {}",
+            k.name,
+            exe(),
+            k.name
+        ));
+    }
+    APP_BOUND.with(|b| *b.borrow_mut() = keys.to_vec());
 }

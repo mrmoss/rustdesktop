@@ -21,6 +21,9 @@ for_window [class=".*"] fullscreen enable
 for_window [window_type="dialog"] fullscreen disable, floating enable
 for_window [window_role="dialog"] fullscreen disable, floating enable
 for_window [app_id="dev.rusttv.TV"] move container to workspace home
+# the copies of the main screen on other screens (wl-mirror): never focused
+no_focus [app_id="at.yrlf.wl_mirror"]
+for_window [app_id="at.yrlf.wl_mirror"] fullscreen enable
 
 # start on the home screen
 workspace home

@@ -12,6 +12,7 @@ const RUN_COMMAND: u32 = 0;
 const GET_WORKSPACES: u32 = 1;
 const SUBSCRIBE: u32 = 2;
 const GET_TREE: u32 = 4;
+const GET_OUTPUTS: u32 = 3;
 const MAX_REPLY: usize = 16 * 1024 * 1024;
 
 pub const HOME: &str = "home";
@@ -120,8 +121,39 @@ pub fn windows() -> Vec<Window> {
     if let Some(t) = request(GET_TREE, "") {
         collect(&t, "", &mut out);
     }
-    out.retain(|w| w.app_id != crate::APP_ID && w.workspace != "__i3_scratch");
+    // (not RustTV itself, nor the copies on other screens)
+    out.retain(|w| {
+        w.app_id != crate::APP_ID
+            && w.app_id != crate::screens::MIRROR_APP
+            && w.workspace != "__i3_scratch"
+    });
     out
+}
+
+/// The app window that has the focus (None: RustTV itself, or nothing).
+pub fn focused_window() -> Option<Window> {
+    fn find(node: &Value) -> Option<i64> {
+        if node["focused"].as_bool() == Some(true) && node["pid"].is_number() {
+            return node["id"].as_i64();
+        }
+        for key in ["nodes", "floating_nodes"] {
+            for n in node[key].as_array().into_iter().flatten() {
+                if let Some(id) = find(n) {
+                    return Some(id);
+                }
+            }
+        }
+        None
+    }
+    let id = find(&request(GET_TREE, "")?)?;
+    windows().into_iter().find(|w| w.id == id)
+}
+
+/// The screens, as sway describes them.
+pub fn outputs_json() -> Vec<Value> {
+    request(GET_OUTPUTS, "")
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
 }
 
 /// The workspace on screen now.
@@ -155,7 +187,7 @@ pub fn free_workspace() -> String {
 pub fn watch_windows(f: impl Fn(String) + Send + 'static) {
     std::thread::spawn(move || loop {
         if let Some(mut s) = connect() {
-            if send(&mut s, SUBSCRIBE, "[\"window\",\"workspace\"]").is_some() {
+            if send(&mut s, SUBSCRIBE, "[\"window\",\"workspace\",\"output\"]").is_some() {
                 let _ = recv(&mut s); // {"success": true}
                 while let Some((_, ev)) = recv(&mut s) {
                     if let Some(change) = ev["change"].as_str() {

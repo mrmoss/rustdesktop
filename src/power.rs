@@ -92,7 +92,7 @@ fn has_key(bitmap: &str, code: u16) -> bool {
 
 /// Hardware buttons: power, volume, mute, brightness. Watches every input
 /// device that has one of those keys but is NOT a full keyboard (we never
-/// read keyboards). Needs the udev rule from install.sh, which gives the
+/// read keyboards). Needs the udev rule from install-rusttouch.sh, which gives the
 /// logged-in user read access to exactly those button devices.
 /// Returns (devices watched, any of them has a power key).
 pub fn start_buttons(tx: Sender<Event>) -> (usize, bool) {
@@ -113,7 +113,7 @@ pub fn start_buttons(tx: Sender<Event>) -> (usize, bool) {
         let label = fs::read_to_string(e.path().join("device/name")).unwrap_or_default();
         let Ok(mut f) = File::open(format!("/dev/input/{name}")) else {
             eprintln!(
-                "rusttouch: can't read /dev/input/{name} ({}) - run install.sh and reboot",
+                "rusttouch: can't read /dev/input/{name} ({}) - run install-rusttouch.sh and reboot",
                 label.trim()
             );
             continue;
@@ -185,7 +185,7 @@ pub fn start_mice(tx: Sender<Event>) {
                         continue;
                     }
                     let Ok(mut f) = File::open(format!("/dev/input/{name}")) else {
-                        continue; // (no permission: install.sh adds it)
+                        continue; // (no permission: install-rusttouch.sh adds it)
                     };
                     let label =
                         fs::read_to_string(e.path().join("device/name")).unwrap_or_default();
@@ -238,7 +238,7 @@ pub fn start_mice(tx: Sender<Event>) {
 }
 
 /// While we handle the button, tell logind not to (released if rusttouch exits,
-/// so logind's own setting - sleep, from install.sh - takes over again).
+/// so logind's own setting - sleep, from install-rusttouch.sh - takes over again).
 pub fn inhibit_power_key() -> Option<Child> {
     Command::new("systemd-inhibit")
         .args([

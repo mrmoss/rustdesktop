@@ -652,6 +652,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustdesktop"
+version = "0.8.5"
+dependencies = [
+ "gio-unix",
+ "gtk4",
+ "gtk4-layer-shell",
+ "gtk4-session-lock",
+ "serde_json",
+ "wayland-client",
+ "wayland-protocols-misc",
+ "wayland-protocols-wlr",
+]
+
+[[package]]
 name = "rustix"
 version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -662,20 +676,6 @@ dependencies = [
  "libc",
  "linux-raw-sys",
  "windows-sys",
-]
-
-[[package]]
-name = "rusttouch"
-version = "0.7.19"
-dependencies = [
- "gio-unix",
- "gtk4",
- "gtk4-layer-shell",
- "gtk4-session-lock",
- "serde_json",
- "wayland-client",
- "wayland-protocols-misc",
- "wayland-protocols-wlr",
 ]
 
 [[package]]

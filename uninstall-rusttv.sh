@@ -16,4 +16,6 @@ sudo rm -f \
   /usr/local/libexec/rusttv-update \
   /usr/share/polkit-1/actions/dev.rusttv.update.policy
 sudo rm -rf /usr/local/share/rusttv
+# (the copy of gtk4-layer-shell a downloaded release brought, unless RustTouch uses it)
+[ -e /usr/local/bin/rusttouch ] || sudo rm -rf /usr/local/lib/rusttouch
 echo "RustTV removed. Settings are still in ~/.config/rusttv (delete it to start fresh)."

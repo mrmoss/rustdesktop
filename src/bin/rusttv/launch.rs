@@ -278,6 +278,9 @@ pub fn launcher_command(l: &Launcher, shared: bool) -> Option<Vec<String>> {
                 }
                 cmd.extend([
                     "--ozone-platform-hint=auto".into(),
+                    // (text boxes reach the input method: RustTV's keyboard)
+                    "--enable-wayland-ime".into(),
+                    "--wayland-text-input-version=3".into(),
                     "--kiosk".into(),
                     "--new-window".into(),
                 ]);
@@ -303,6 +306,9 @@ pub fn launcher_command(l: &Launcher, shared: bool) -> Option<Vec<String>> {
                 format!("--user-data-dir={p}"),
                 format!("--class={id}"),
                 "--ozone-platform-hint=auto".into(),
+                // (text boxes reach the input method: RustTV's keyboard)
+                "--enable-wayland-ime".into(),
+                "--wayland-text-input-version=3".into(),
                 "--no-first-run".into(),
                 "--no-default-browser-check".into(),
             ]);

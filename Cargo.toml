@@ -1,9 +1,16 @@
 [package]
-name = "rusttouch"
-version = "0.7.19"
+name = "rustdesktop"
+version = "0.8.5"
 edition = "2021"
-description = "A tiny Android-style touch shell for Wayland (layer-shell) with an X11/windowed fallback"
+description = "RustDesktop: RustTouch, a tiny Android-style touch shell for Wayland, and RustTV, a home screen for a TV and remote"
+repository = "https://github.com/mrmoss/rustdesktop"
 license = "GPL-2.0-only"
+
+# The programs keep their own names: rusttouch (here), rusttouch-settings
+# (src/bin/rusttouch-settings.rs) and rusttv (src/bin/rusttv/).
+[[bin]]
+name = "rusttouch"
+path = "src/main.rs"
 
 [dependencies]
 # gtk4-layer-shell 0.8 and gtk4-session-lock 0.4 are built against gtk4 0.11 - bump

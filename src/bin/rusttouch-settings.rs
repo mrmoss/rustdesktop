@@ -1318,7 +1318,7 @@ fn power(_: &Rc<Ctx>) -> gtk::Widget {
         ),
         note(
             "When the screen is off, any press of the power button turns it back on. \
-             Power button handling needs the udev rule from install.sh (then reboot); \
+             Power button handling needs the udev rule from install-rusttouch.sh (then reboot); \
              without rusttouch running, the button sleeps.",
         ),
     ])

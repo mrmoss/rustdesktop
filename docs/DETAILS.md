@@ -1,6 +1,6 @@
 # RustTouch - technical details
 
-The full reference: every feature, config key and how it works inside. New here? Start with the [README](../README.md).
+The full reference: every feature, config key and how it works inside. New here? Start with the [RustTouch guide](RUSTTOUCH.md). (RustTV, the TV desktop in the same project, has [its own guide](RUSTTV.md).)
 
 A deliberately small, Android-style touch shell for Linux, in Rust + GTK4.
 Think "Phosh, but a weekend project you can read in one sitting".
@@ -64,7 +64,7 @@ home_apps_landscape = ...    # same, for landscape
 
 rusttouch reads button devices (power button, tablet volume buttons, brightness
 keys) directly, which is what makes long/double press and hold-to-repeat
-possible. `install.sh` adds a udev rule giving the logged-in user read access
+possible. `install-rusttouch.sh` adds a udev rule giving the logged-in user read access
 to devices that have such keys **but are not keyboards** - rusttouch never reads
 your keyboard. Reboot once after installing. While rusttouch runs it tells logind
 to leave the power button alone; if rusttouch isn't running, the button sleeps.
@@ -73,15 +73,15 @@ Volume/brightness keys on a laptop's main keyboard (Fn keys) are not handled.
 ## Quick start (Ubuntu 24.04 or 26.04, x86_64)
 
 ```sh
-./deps.sh            # apt packages; enables "universe"; builds gtk4-layer-shell on 24.04
-./run-windowed.sh    # 1) phone-sized window inside your normal desktop - instant look
-./run-nested.sh      # 2) real thing: phoc running as a window, rusttouch as its shell
-./install.sh         # 3) adds "RustTouch" to the login screen (removes an old rdesk install)
-./uninstall.sh       # removes RustTouch again (keeps your settings)
+./deps.sh                # apt packages; enables "universe"; builds gtk4-layer-shell on 24.04
+./install-rusttouch.sh   # adds "RustTouch" to the login screen
+./uninstall-rusttouch.sh # removes RustTouch again (keeps your settings)
 ```
 
-Option 1 works anywhere and doesn't need gtk4-layer-shell, but it's only
-a preview: no window list, rotation, keyboard or lock-on-suspend.
+`cargo build --release --no-default-features` (`just build-windowed`) still
+makes a build without gtk4-layer-shell that runs as a phone-sized window on a
+normal desktop - only a preview: no window list, rotation, keyboard or
+lock-on-suspend.
 
 ## Split screen (sway)
 
@@ -198,7 +198,7 @@ At startup it says which keyboard it uses and which button devices it watches.
 
 GTK apps ask the desktop *portal* for settings at startup. If nothing answers
 for the session, each one waits out a 25s D-Bus timeout. `rusttouch-shell` now
-exports the session environment to D-Bus/systemd, and `install.sh` installs
+exports the session environment to D-Bus/systemd, and `install-rusttouch.sh` installs
 `/etc/xdg/xdg-desktop-portal/rusttouch-portals.conf` so the GTK portal answers
 (`xdg-desktop-portal-gtk`, installed by `deps.sh`). Snap apps (Firefox) are
 still slower on their very first launch after boot - that's snap.

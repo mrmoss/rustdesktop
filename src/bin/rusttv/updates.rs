@@ -1,6 +1,6 @@
 //! Checking for and installing updates: the system's packages (apt), snaps
 //! and Flatpaks. Changing the system needs permission: the helper
-//! /usr/local/libexec/rusttv-update has it (install-rusttv.sh puts it there
+//! /usr/local/libexec/rusttv-update has (/usr/libexec from the .deb) it (install-rusttv.sh puts it there
 //! with a polkit rule for the person at the TV - it only ever updates what's
 //! installed, from the sources already set up).
 //!
@@ -8,7 +8,15 @@
 
 use std::process::Command;
 
-pub const HELPER: &str = "/usr/local/libexec/rusttv-update";
+/// Where the helper is: /usr/local (install-rusttv.sh) or /usr (the .deb).
+pub fn helper_path() -> &'static str {
+    const LOCAL: &str = "/usr/local/libexec/rusttv-update";
+    if std::path::Path::new(LOCAL).exists() {
+        LOCAL
+    } else {
+        "/usr/libexec/rusttv-update"
+    }
+}
 
 /// How many updates there are of each kind (None: that kind isn't
 /// installed here, or couldn't be checked).
@@ -37,11 +45,11 @@ fn out(cmd: &str, args: &[&str]) -> Option<String> {
 }
 
 fn helper(what: &str) -> Result<(), String> {
-    if !std::path::Path::new(HELPER).exists() {
+    if !std::path::Path::new(helper_path()).exists() {
         return Err("the update helper isn't installed (run install-rusttv.sh)".into());
     }
     let o = Command::new("pkexec")
-        .arg(HELPER)
+        .arg(helper_path())
         .arg(what)
         .output()
         .map_err(|e| format!("couldn't ask for permission: {e}"))?;

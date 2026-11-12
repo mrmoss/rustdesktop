@@ -5,6 +5,11 @@ set -e
 cd "$(dirname "$0")"
 if [ -x bin/rusttv ]; then
   BIN=bin
+  # the release brings its own copy of gtk4-layer-shell (it isn't packaged on 24.04)
+  if ls lib/libgtk4-layer-shell.so* >/dev/null 2>&1; then
+    sudo install -d /usr/local/lib/rusttouch
+    sudo cp -P lib/libgtk4-layer-shell.so* /usr/local/lib/rusttouch/
+  fi
 else
   # With gtk4-layer-shell (RustTouch needs it too) the volume pop-up can
   # show over apps; without it RustTV still works (volume shown on its own
@@ -29,11 +34,11 @@ sudo install -Dm644 session/rusttv/dev.rusttv.autologin.policy /usr/share/polkit
 sudo install -Dm755 session/rusttv/rusttv-update        /usr/local/libexec/rusttv-update
 sudo install -Dm644 session/rusttv/dev.rusttv.update.policy /usr/share/polkit-1/actions/dev.rusttv.update.policy
 missing=""
-for p in sway chromium wpctl pkexec swayidle; do
+for p in sway chromium wpctl pkexec swayidle nmcli bluetoothctl wl-mirror; do
   command -v "$p" >/dev/null || missing="$missing $p"
 done
 if [ -n "$missing" ]; then
   echo "Note: not installed:$missing"
-  echo "      sudo apt install sway wireplumber pkexec swayidle chromium"
+  echo "      sudo apt install sway wireplumber pkexec swayidle chromium network-manager bluez wl-mirror"
 fi
 echo "Installed. Pick 'RustTV' on the login screen (or turn on Settings > Log in by itself in RustTV)."

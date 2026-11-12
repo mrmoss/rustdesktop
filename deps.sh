@@ -6,7 +6,7 @@ set -e
 cd "$(dirname "$0")"
 
 . /etc/os-release
-echo "== rusttouch deps for $PRETTY_NAME"
+echo "== RustDesktop (RustTouch and RustTV) deps for $PRETTY_NAME"
 
 # Most of this lives in "universe".
 if ! grep -rqsE '^[^#]*universe|Components:.*universe' /etc/apt/sources.list /etc/apt/sources.list.d/; then
@@ -21,7 +21,7 @@ PREBUILT=""
 if [ -n "$PREBUILT" ]; then
   sudo apt install -y libgtk-4-1
 else
-  # Required for any build (including run-windowed.sh)
+  # Required for any build
   sudo apt install -y build-essential pkg-config libgtk-4-dev curl
 
   # Rust: Ubuntu's cargo is fine on 26.04; on 24.04 it's old, so prefer rustup.
@@ -32,21 +32,23 @@ else
   fi
 fi
 
-# Optional runtime helpers (shell works without them; features just hide)
+# Optional runtime helpers (both desktops work without them; features just hide).
+# chromium, pkexec and openssl are for RustTV.
 for p in sway wl-mirror phoc wvkbd squeekboard swayidle grim wtype wlr-randr iio-sensor-proxy \
          xdg-desktop-portal-gtk xdg-desktop-portal-wlr \
-         network-manager bluez wireplumber pulseaudio-utils sound-theme-freedesktop foot labwc xdotool; do
+         network-manager bluez wireplumber pulseaudio-utils sound-theme-freedesktop foot labwc xdotool \
+         chromium pkexec openssl; do
   sudo apt install -y "$p" >/dev/null 2>&1 && echo "  ok      $p" || echo "  MISSING $p (optional)"
 done
 
 if [ -n "$PREBUILT" ]; then
   echo
-  echo "Done. Now: ./install.sh"
+  echo "Done. Now: ./install-rusttouch.sh"
   exit 0
 fi
 
-# gtk4-layer-shell (needed for run-nested.sh / install.sh, not run-windowed.sh)
+# gtk4-layer-shell (RustTouch needs it; RustTV uses it for pop-ups over apps)
 . ./ensure-layer-shell.sh
 
 echo
-echo "Done. Try: ./run-windowed.sh   (then ./run-nested.sh)"
+echo "Done. Now: ./install-rusttouch.sh and/or ./install-rusttv.sh"

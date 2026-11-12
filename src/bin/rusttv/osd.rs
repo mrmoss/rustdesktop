@@ -175,6 +175,8 @@ pub fn message(t: &Tv, icon: &str, text: &str) {
 }
 
 fn shown(t: &Tv, level: f64, muted: bool) {
+    // (the Sound settings, if open, show it too)
+    crate::netui::volume_changed(level, muted);
     match t.osd.as_ref() {
         Some(o) => o.show(level, muted),
         None => t.toast(&if muted {

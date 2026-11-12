@@ -1,21 +1,43 @@
 # RustTV
 
+Part of [RustDesktop](../README.md), next to [RustTouch](RUSTTOUCH.md).
+
 RustTV is RustTouch's sibling for a TV: a home screen for a media box,
 made for a remote control. It's a separate program with its own login
 session, settings (`~/.config/rusttv`) and sway config; installing it
 doesn't change RustTouch.
 
-## Install
-
-Needs sway, plus Firefox or Waterfox for the launchers:
-
-```sh
-sudo apt install sway wireplumber pkexec firefox
-./install-rusttv.sh          # builds and installs RustTV (asks for sudo)
+```
+ ┌───────────────────────────────────────────────────────────┐
+ │ RustTV                                      12:30   ▮ 80% │
+ │ Open now   [ Hulu ]                                       │
+ │ Watch      [ Plex ] [ Jellyfin ] [ Netflix ] [ YouTube ] +│
+ │ Apps       [ Kodi ] [ Settings ]                         +│
+ │                                                           │
+ │ OK Open   Hold OK Options   Home This screen              │
+ └───────────────────────────────────────────────────────────┘
 ```
 
-Then pick **RustTV** on the login screen. To remove it again:
-`./uninstall-rusttv.sh` (your settings stay in `~/.config/rusttv`).
+## Install
+
+The `rustdesktop` `.deb` from the Releases page has RustTV in it
+(`sudo apt install ./rustdesktop_<version>_amd64.deb`; see the
+[README](../README.md#install)). The `.tar.gz` there has it already built:
+run `./deps.sh` and `./install-rusttv.sh` in it. Or from the project folder,
+built from source:
+
+```sh
+./deps.sh                # sway, Chromium, NetworkManager, BlueZ... (asks for your password)
+./install-rusttv.sh      # builds and installs RustTV (asks for sudo)
+```
+
+Or with `just`: `just deps` and `just install-tv`. Then pick **RustTV** on
+the login screen (or turn on **Settings → Autologin** in RustTV). To remove it
+again: `./uninstall-rusttv.sh` (your settings stay in `~/.config/rusttv`).
+
+It needs sway; launchers need Chromium (to start with), Chrome, Firefox or
+Waterfox. Wi-Fi, Bluetooth and sound need NetworkManager, BlueZ and
+WirePlumber; Ubuntu has them all.
 
 ## The remote
 
@@ -28,6 +50,8 @@ Then pick **RustTV** on the login screen. To remove it again:
 | Home (or the Windows key) | back to RustTV from any app |
 | Volume keys | volume (a pop-up shows how loud) |
 
+| Play / pause, ⏮ ⏭, ⏹ (media keys) | whatever is playing |
+
 Any remote that acts as a USB or Bluetooth keyboard works (most "air mouse"
 remotes, Fire TV-style Bluetooth remotes, a wireless keyboard). A mouse
 works too.
@@ -36,7 +60,20 @@ Remotes send ordinary keys, but which keys differs from one to the next.
 **Settings → Remote buttons** gives any button a job: pick the job, press
 the button. OK, Back, options and the arrows work in RustTV; Home, closing
 the app and the volume work in every app (they become sway key bindings,
-kept in `~/.config/rusttv/remote-keys.conf`).
+kept in `~/.config/rusttv/remote-keys.conf`). Media jobs (play / pause, back and
+forward 10 seconds, previous, next, stop) work on whatever is playing.
+
+Each launcher can also have **its own** buttons (**Edit → Remote buttons**),
+working only while it's on screen - for example a button that sends Hulu
+Space (pause) or Left/Right (seek), or YouTube's J/K/L.
+
+**Settings → Pause when going home** (on to start with): pressing Home
+pauses whatever is playing.
+
+Some sites' players (Hulu's, for one) start playing again by themselves a
+little while after the media buttons pause them. For those, give the
+launcher's own play / pause button **Send Space** (Edit → Remote buttons):
+that pauses with the site's own controls.
 
 ## The home screen
 
@@ -130,6 +167,12 @@ browser, those services stream at up to 720p-1080p.
 * **Max open apps**, **Remote buttons** – see above.
 * **Default browser** – for new launchers: Chromium (to start with),
   Chrome, Firefox or Waterfox. **Separate history** – see above.
+* **Wi-Fi**, **Bluetooth**, **Sound** – networks (passwords typed with the
+  remote), Bluetooth devices (remotes, game pads, headphones, speakers),
+  the volume and which output/input to use. Need NetworkManager, BlueZ
+  and WirePlumber (Ubuntu has them).
+* **Screens** – with more than one, which one RustTV is on; the others
+  show a copy (needs `wl-mirror`); each screen's resolution.
 * **Scale** – for 4K TVs pick 200%.
 * **Autologin** – the TV starts straight into RustTV with no
   password, like a TV. Works with GDM (Ubuntu), LightDM and SDDM. A small
@@ -156,12 +199,26 @@ browser, those services stream at up to 720p-1080p.
 Typing (names, web addresses) uses an on-screen keyboard you move through
 with the arrows; a real keyboard types straight in.
 
+In apps too: when a text box on a web page gets the focus, RustTV's
+keyboard comes up at the bottom - arrows and OK to type, Back to put it
+away, and a real keyboard types straight in (the on-screen one goes away).
+Turn it off with **Settings → Keyboard in apps**; give a remote button
+"Show the keyboard" to bring it back in the same box.
+
 ## Your own additions
 
 * `~/.config/rusttv/sway.conf` – extra sway config (included at the end).
 * `~/.config/rusttv/env` – environment variables for the session.
 * `~/.config/rusttv/rusttv.json` – RustTV's settings (launchers, apps).
-* `rusttv --do home` / `rusttv --do settings` – for your own key bindings.
+* `rusttv --do JOB` – for your own key bindings: `home`, `settings`, `close`,
+  `keyboard`, `volume-up`, `volume-down`, `mute`, `play-pause`, `seek-back`,
+  `seek-forward`, `previous`, `next`, `stop`.
+
+## Pictures
+
+No pictures of RustTV yet. To take some on the TV (grim is in `./deps.sh`):
+`grim docs/screenshots/rusttv/home.png` from a terminal or over SSH
+(`SWAYSOCK=$(ls /run/user/$(id -u)/sway-ipc.*) WAYLAND_DISPLAY=wayland-1 grim ...`).
 
 ## Not there yet
 

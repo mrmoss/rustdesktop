@@ -9,16 +9,32 @@
 //! It is separate from RustTouch: its own program, login session, settings
 //! (~/.config/rusttv) and sway config.
 
+// (RustTouch's own: Wi-Fi passwords over D-Bus, and the sound devices)
+#[allow(dead_code)]
+#[path = "../../audio.rs"]
+mod audio;
+#[allow(dead_code)]
+#[path = "../../nm.rs"]
+mod nm;
+
+mod appkbd;
 mod autologin;
 mod battery;
 mod config;
 mod home;
 mod icons;
 mod idle;
+#[allow(dead_code)]
+mod im;
 mod keyboard;
 mod launch;
+mod media;
+#[allow(dead_code)]
+mod net;
+mod netui;
 mod osd;
 mod remote;
+mod screens;
 mod settings;
 mod sway;
 mod ui;
@@ -40,7 +56,7 @@ pub struct Page {
     /// what had the focus before it opened (gets it back after)
     pub back_to: Option<gtk::Widget>,
     /// handles keys first (the keyboard page types with them)
-    pub keys: Option<Rc<dyn Fn(gdk::Key) -> bool>>,
+    pub keys: Option<Rc<dyn Fn(gdk::Key, u32) -> bool>>,
     /// redraws it (after a change made on a page above it)
     pub refresh: Option<Rc<dyn Fn()>>,
 }
@@ -74,6 +90,11 @@ pub fn with_tv(f: impl FnOnce(&Tv)) {
     if let Some(tv) = TV.with(|t| t.borrow().clone()) {
         f(&tv);
     }
+}
+
+/// The running TV screen's answer to `f` (None: not running).
+pub fn with_tv_ret<T>(f: impl FnOnce(&Tv) -> T) -> Option<T> {
+    TV.with(|t| t.borrow().clone()).map(|tv| f(&tv))
 }
 
 /// Run `f` on the main thread (from a worker thread).
@@ -135,14 +156,18 @@ impl TvInner {
     }
 
     /// Open a page on top.
-    pub fn push(&self, widget: &impl IsA<gtk::Widget>, keys: Option<Rc<dyn Fn(gdk::Key) -> bool>>) {
+    pub fn push(
+        &self,
+        widget: &impl IsA<gtk::Widget>,
+        keys: Option<Rc<dyn Fn(gdk::Key, u32) -> bool>>,
+    ) {
         self.push_page(widget, keys, None);
     }
 
     pub fn push_page(
         &self,
         widget: &impl IsA<gtk::Widget>,
-        keys: Option<Rc<dyn Fn(gdk::Key) -> bool>>,
+        keys: Option<Rc<dyn Fn(gdk::Key, u32) -> bool>>,
         refresh: Option<Rc<dyn Fn()>>,
     ) {
         let widget = widget.clone().upcast::<gtk::Widget>();
@@ -199,6 +224,13 @@ impl TvInner {
     /// Back to the home screen, from anywhere (an app, settings...).
     pub fn go_home(&self) {
         self.close_pages();
+        // leaving an app: pause what's playing in it
+        if self.cfg.borrow().pause_on_home
+            && sway::available()
+            && sway::current_workspace() != sway::HOME
+        {
+            media::run("pause-all");
+        }
         if sway::available() {
             sway::run(&format!("workspace {}", sway::HOME));
         }
@@ -384,7 +416,8 @@ fn theme_css(c: &Config) -> String {
          {{ background: {a}; color: {on_a}; }}\n\
          button.top-button:focus, button.top-button:focus-visible {{ background: {a}; color: {on_a}; }}\n\
          button.key.done {{ background: {}; }}\n\
-         .osd levelbar block.filled {{ background: {a}; }}\n",
+         .osd levelbar block.filled, .vol-row levelbar block.filled {{ background: {a}; }}\n\
+         .app-kbd-box button.key.sel {{ background: {a}; color: {on_a}; }}\n",
         if a == "#ffffff" { "#2f6fed" } else { a }
     );
     let bg = match c.background.as_str() {
@@ -432,11 +465,12 @@ fn add_keys(tv: &Tv) {
     let k = gtk::EventControllerKey::new();
     k.set_propagation_phase(gtk::PropagationPhase::Capture);
     let (t, h, f, tm) = (tv.clone(), held.clone(), fired.clone(), timer.clone());
-    k.connect_key_pressed(move |_, key, _, _| {
+    k.connect_key_pressed(move |_, key, keycode, _| {
         // a page that types (the keyboard) gets the keys first
+        // (keycode: X's, = the evdev code + 8)
         let keys = t.pages.borrow().last().and_then(|p| p.keys.clone());
         if let Some(keys) = keys {
-            if keys(key) {
+            if keys(key, keycode.saturating_sub(8)) {
                 return glib::Propagation::Stop;
             }
         }
@@ -451,7 +485,10 @@ fn add_keys(tv: &Tv) {
             Some("down") => return dir(gtk::DirectionType::Down),
             Some("left") => return dir(gtk::DirectionType::Left),
             Some("right") => return dir(gtk::DirectionType::Right),
-            Some(a @ ("home" | "close" | "volume-up" | "volume-down" | "mute")) => {
+            Some(
+                a @ ("home" | "close" | "keyboard" | "volume-up" | "volume-down" | "mute"
+                | "play-pause" | "seek-back" | "seek-forward" | "previous" | "next" | "stop"),
+            ) => {
                 do_action(&t, a);
                 return glib::Propagation::Stop;
             }
@@ -543,8 +580,51 @@ fn listen_actions() {
     });
 }
 
+/// Do an app's own button's job (`--do app-key NAME`).
+fn app_key(tv: &Tv, name: &str) {
+    let job = sway::focused_window().and_then(|w| {
+        let cfg = tv.cfg();
+        let l = cfg
+            .launchers
+            .iter()
+            .find(|l| launch::launcher_window(l, std::slice::from_ref(&w)).is_some())?;
+        l.keys
+            .iter()
+            .find(|k| k.name == name)
+            .map(|k| k.action.clone())
+    });
+    let Some(job) = job else { return };
+    if let Some(code) = remote::send_code(&job) {
+        appkbd::tap(code);
+    } else {
+        do_action(tv, &job);
+    }
+}
+
+/// Bind the buttons of the app on screen (and give back the last one's).
+pub fn app_keys_changed(tv: &Tv) {
+    let cfg = tv.cfg();
+    let keys = sway::focused_window()
+        .and_then(|w| {
+            cfg.launchers
+                .iter()
+                .find(|l| launch::launcher_window(l, std::slice::from_ref(&w)).is_some())
+                .map(|l| l.keys.clone())
+        })
+        .unwrap_or_default();
+    remote::app_on_screen(&keys, &cfg.keys);
+}
+
 fn do_action(tv: &Tv, action: &str) {
+    if let Some(name) = action.strip_prefix("app-key ") {
+        app_key(tv, name.trim());
+        return;
+    }
     match action {
+        // play, pause, skip, seek (whatever is playing)
+        a @ ("play-pause" | "seek-back" | "seek-forward" | "previous" | "next" | "stop") => {
+            media::run(a)
+        }
         "home" => tv.go_home(),
         "settings" => {
             tv.go_home();
@@ -552,6 +632,12 @@ fn do_action(tv: &Tv, action: &str) {
         }
         "back" => {
             tv.back();
+        }
+        // the keyboard for apps, again (the text box still has the focus)
+        "keyboard" => {
+            if !appkbd::show_again() {
+                tv.toast("No text box to type in");
+            }
         }
         // (from your remote's buttons: Settings > Remote buttons)
         "close" => {
@@ -594,6 +680,10 @@ thread_local! {
 }
 
 fn windows_changed(tv: &Tv, change: &str) {
+    // (screens plugged in or out: the copies follow)
+    screens::refresh(&tv.cfg());
+    // (the app on screen's own remote buttons)
+    app_keys_changed(tv);
     let wins = sway::windows();
     KNOWN.with(|k| {
         let mut k = k.borrow_mut();
@@ -681,6 +771,8 @@ fn build(app: &gtk::Application) {
 
     let cfg = Config::load();
     apply_scale(&cfg);
+    screens::apply_modes(&cfg);
+    screens::refresh(&cfg);
     // (a button being learned when RustTV last stopped: keys back to normal)
     remote::learning(false);
     remote::apply(&[], &cfg.keys);
@@ -706,6 +798,9 @@ fn build(app: &gtk::Application) {
     *tv.home.borrow_mut() = Some(h.clone());
     add_keys(&tv);
     battery::watch(&tv);
+    if !appkbd::start(&tv) {
+        eprintln!("rusttv: no on-screen keyboard for apps");
+    }
     listen_actions();
     watch_sway();
     // the first run: nothing saved yet - save the starting launchers
@@ -721,7 +816,13 @@ fn build(app: &gtk::Application) {
 fn main() -> glib::ExitCode {
     let args: Vec<String> = std::env::args().collect();
     if let Some(i) = args.iter().position(|a| a == "--do") {
-        let action = args.get(i + 1).map(String::as_str).unwrap_or("home");
+        // ("app-key Return": an app's own button)
+        let rest = args[i + 1..].join(" ");
+        let action = if rest.is_empty() {
+            "home"
+        } else {
+            rest.as_str()
+        };
         if send_action(action) {
             return glib::ExitCode::SUCCESS;
         }

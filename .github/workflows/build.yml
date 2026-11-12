@@ -1,0 +1,89 @@
+# Builds and tests RustDesktop (RustTouch and RustTV) on Ubuntu 24.04 (Intel/AMD and ARM) and 26.04, and checks the
+# .deb and .tar.gz can be made (and the .deb installs).
+# NOTE: written without being able to run it; if a runner image or action version has moved on,
+# the fix is usually just bumping it here.
+name: build
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu-24:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux x86_64 and aarch64. 24.04 is the oldest Ubuntu RustTouch supports (GTK 4.10+).
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - name: Build libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-4-dev dpkg-dev
+      - name: gtk4-layer-shell (not packaged on 24.04, so built from source like ./deps.sh does)
+        run: ./build-layer-shell.sh
+      - name: The scripts are valid shell
+        run: |
+          for f in *.sh session/rusttouch-session session/rusttouch-shell session/labwc/autostart \
+                   session/rusttv/rusttv-session session/rusttv/rusttv-autologin session/rusttv/rusttv-update; do
+            sh -n "$f" || { echo "syntax error in $f"; exit 1; }
+          done
+      - name: Build
+        run: cargo build --release
+      - name: Build the windowed version (no layer shell)
+        run: cargo build --release --no-default-features
+      - name: Test
+        run: cargo test --release
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+        with:
+          tool: just
+      - name: Package details
+        run: echo "HOMEPAGE=https://github.com/$GITHUB_REPOSITORY" >> "$GITHUB_ENV"
+      - name: Debian package (checks the .deb can be made and installed)
+        run: |
+          just deb
+          dpkg-deb --info dist/*.deb
+          dpkg-deb --contents dist/*.deb
+          sudo apt-get install -y --no-install-recommends ./dist/*.deb
+          # the programs must find the copy of gtk4-layer-shell that came with the package
+          ldd /usr/bin/rusttouch | tee /dev/stderr | grep -q '/usr/lib/rusttouch/libgtk4-layer-shell'
+          ldd /usr/bin/rusttv | tee /dev/stderr | grep -q '/usr/lib/rusttouch/libgtk4-layer-shell'
+          sudo apt-get remove -y rustdesktop
+      - name: Release download (.tar.gz)
+        run: |
+          just package
+          tar -tzf dist/*.tar.gz
+
+  ubuntu-26:
+    # In an Ubuntu 26.04 container, where gtk4-layer-shell is a normal package.
+    name: ubuntu-26.04
+    runs-on: ubuntu-latest
+    container: ubuntu:26.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Build libraries
+        run: |
+          apt-get update
+          apt-get install -y build-essential pkg-config libgtk-4-dev libgtk4-layer-shell-dev curl ca-certificates git
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - name: Build
+        run: cargo build --release
+      - name: Test
+        run: cargo test --release

@@ -644,9 +644,13 @@ fn do_action(tv: &Tv, action: &str) {
         "close" => {
             // the app on screen (never RustTV itself)
             if sway::available() && sway::current_workspace() != sway::HOME {
-                sway::run("kill");
+                if let Some(w) = sway::focused_window() {
+                    sway::run(&format!("[con_id={}] kill", w.id));
+                }
             }
         }
+        // the remote's power button (Settings > Power button)
+        "power-button" => settings::power_button(tv),
         // (and the volume pop-up shows how loud it is now)
         "volume-up" | "volume-down" | "mute" => osd::volume(action),
         other => eprintln!("rusttv: unknown action {other:?}"),
@@ -827,6 +831,8 @@ fn build(app: &gtk::Application) {
     }
     listen_actions();
     watch_sway();
+    // the power button is RustTV's (Settings > Power button)
+    settings::hold_power_key();
     // AirPlay (UxPlay), when it's on
     airplay::clean_up();
     airplay::apply(&tv.cfg());

@@ -71,6 +71,9 @@ pub struct Config {
     pub app_keyboard: bool,
     /// going home pauses what's playing
     pub pause_on_home: bool,
+    /// what the remote's power button does: "suspend", "menu", "poweroff",
+    /// "nothing"
+    pub power_button: String,
     /// AirPlay (UxPlay) is on: iPhones, iPads and Macs can show their screen
     pub airplay: bool,
     /// the name the TV has in AirPlay
@@ -382,6 +385,7 @@ impl Default for Config {
             resolutions: Vec::new(),
             app_keyboard: true,
             pause_on_home: true,
+            power_button: "suspend".into(),
             airplay: true,
             airplay_name: "RustTV".into(),
             airplay_code: "first".into(),
@@ -472,6 +476,9 @@ impl Config {
             main_output: str_of(&v, "main_output"),
             app_keyboard: v["app_keyboard"].as_bool().unwrap_or(true),
             pause_on_home: v["pause_on_home"].as_bool().unwrap_or(true),
+            power_button: Some(str_of(&v, "power_button"))
+                .filter(|p| crate::settings::POWER_BUTTON.iter().any(|x| x.0 == p))
+                .unwrap_or_else(|| "suspend".into()),
             airplay: v["airplay"].as_bool().unwrap_or(true),
             airplay_name: Some(str_of(&v, "airplay_name"))
                 .filter(|n| !n.trim().is_empty())
@@ -518,6 +525,7 @@ impl Config {
             "main_output": self.main_output,
             "app_keyboard": self.app_keyboard,
             "pause_on_home": self.pause_on_home,
+            "power_button": self.power_button,
             "airplay": self.airplay,
             "airplay_name": self.airplay_name,
             "airplay_code": self.airplay_code,

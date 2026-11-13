@@ -3,7 +3,10 @@
 //! kept in ~/.cache/rusttv/icons. When none big enough turns up, the card
 //! keeps its colour and name.
 //!
-//! Downloads use curl (or wget), on a worker thread.
+//! Downloads use curl (or wget), on a worker thread. A server on your own
+//! network (a private address, a .local name...) is trusted with a
+//! home-made certificate; if its page gives no icon, a service RustTV knows
+//! (Plex, Jellyfin...) gets its icon from the project's own site.
 
 use crate::config::Launcher;
 use gtk::gdk_pixbuf::Pixbuf;
@@ -37,6 +40,83 @@ const KNOWN: &[(&str, &str)] = &[
 fn known(l: &Launcher) -> Option<&'static str> {
     let name = l.name.to_ascii_lowercase();
     KNOWN.iter().find(|k| name.contains(k.0)).map(|k| k.1)
+}
+
+/// Official sites, for services that run on your own server: when your
+/// server's page gives no icon, the icon's looked for there.
+/// (launcher name or address part, site)
+const OFFICIAL: &[(&str, &str)] = &[
+    ("plex", "https://www.plex.tv"),
+    ("jellyfin", "https://jellyfin.org"),
+    ("emby", "https://emby.media"),
+    ("frigate", "https://frigate.video"),
+    ("home assistant", "https://www.home-assistant.io"),
+    ("homeassistant", "https://www.home-assistant.io"),
+    ("immich", "https://immich.app"),
+    ("nextcloud", "https://nextcloud.com"),
+    ("audiobookshelf", "https://www.audiobookshelf.org"),
+    ("navidrome", "https://www.navidrome.org"),
+];
+
+fn official(l: &Launcher) -> Option<&'static str> {
+    let name = l.name.to_ascii_lowercase();
+    let url = l.url.to_ascii_lowercase();
+    // (Plex's own server port, 32400)
+    if url.contains(":32400") {
+        return Some("https://www.plex.tv");
+    }
+    OFFICIAL
+        .iter()
+        .find(|k| name.contains(k.0) || url.contains(&k.0.replace(' ', "")))
+        .map(|k| k.1)
+}
+
+/// Is `url`'s server on your own network? (a private or Tailscale address,
+/// localhost, a .local / .lan / .home.arpa name, or a name with no dots)
+pub fn local(url: &str) -> bool {
+    let rest = url.split("://").nth(1).unwrap_or(url);
+    let hostport = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = if let Some(h) = hostport.strip_prefix('[') {
+        h.split(']').next().unwrap_or("").to_ascii_lowercase()
+    } else {
+        hostport
+            .rsplit_once(':')
+            .map_or(hostport, |(h, _)| h)
+            .to_ascii_lowercase()
+    };
+    if host.is_empty() {
+        return false;
+    }
+    if host == "localhost" || !host.contains('.') && !host.contains(':') {
+        return true;
+    }
+    if [
+        ".local",
+        ".lan",
+        ".home",
+        ".internal",
+        ".home.arpa",
+        ".localdomain",
+        ".ts.net",
+    ]
+    .iter()
+    .any(|s| host.ends_with(s))
+    {
+        return true;
+    }
+    if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
+        let o = ip.octets();
+        return ip.is_private()
+            || ip.is_loopback()
+            || ip.is_link_local()
+            // Tailscale / Headscale (100.64.0.0/10)
+            || (o[0] == 100 && (64..128).contains(&o[1]));
+    }
+    if let Ok(ip) = host.parse::<std::net::Ipv6Addr>() {
+        let s = ip.segments()[0];
+        return ip.is_loopback() || (s & 0xfe00) == 0xfc00 || (s & 0xffc0) == 0xfe80;
+    }
+    false
 }
 
 fn dir() -> PathBuf {
@@ -85,7 +165,10 @@ pub fn wanted(l: &Launcher) -> bool {
         .ok()
         .and_then(|t| SystemTime::now().duration_since(t).ok());
     // (one with a known icon: again after ten minutes)
-    if known(l).is_some() && age.is_none_or(|a| a > Duration::from_secs(600)) {
+    // (one on your own server - it may just have been off - too)
+    if (known(l).is_some() || official(l).is_some() || local(&l.url))
+        && age.is_none_or(|a| a > Duration::from_secs(600))
+    {
         return true;
     }
     // tried: failed - again after a day
@@ -105,8 +188,14 @@ pub fn forget(l: &Launcher) {
 /// Download `url` to `to`. Returns the address it ended up at (after
 /// redirects) when known.
 fn download(url: &str, to: &Path, max: &str) -> Option<String> {
+    // (your own server: a home-made certificate is fine)
+    let trust = local(url);
     if crate::launch::find("curl").is_some() {
-        let out = Command::new("curl")
+        let mut c = Command::new("curl");
+        if trust {
+            c.arg("-k");
+        }
+        let out = c
             .args(["-fsSL", "--max-time", "20", "--max-filesize", max, "-A", UA])
             .args(["-H", "Accept-Language: en", "-w", "%{url_effective}", "-o"])
             .arg(to)
@@ -118,7 +207,11 @@ fn download(url: &str, to: &Path, max: &str) -> Option<String> {
             .success()
             .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string());
     }
-    let ok = Command::new("wget")
+    let mut w = Command::new("wget");
+    if trust {
+        w.arg("--no-check-certificate");
+    }
+    let ok = w
         .args(["-q", "--timeout=20", "-U", UA, "-O"])
         .arg(to)
         .arg(url)
@@ -375,21 +468,49 @@ pub fn fetch(l: &Launcher) -> bool {
     }
     let tmp = d.join(format!("{}.download", l.id));
     let keep = png(l);
-    // a known-good icon first
-    if let Some(url) = known(l) {
-        if try_picture(url, &tmp, &keep) {
-            let _ = std::fs::remove_file(&tmp);
-            let _ = std::fs::write(note(l), &l.url);
-            return true;
+    // the site's own icon first (your own server's too: a home-made
+    // certificate is fine there)
+    let mut ok = from_page(&l.url, &l.id, &tmp, &keep);
+    // then a known-good icon, from the project's source
+    if !ok {
+        if let Some(url) = known(l) {
+            ok = try_picture(url, &tmp, &keep);
         }
     }
+    // then the project's official site (your server's page gave none)
+    if !ok {
+        if let Some(site) = official(l) {
+            ok = from_page(site, &l.id, &tmp, &keep);
+        }
+    }
+    // last try: a well-known icon service (it can't see your own network)
+    if !ok && !local(&l.url) {
+        if let Some((_, origin, _)) = parts(&l.url) {
+            let host = origin.split("://").nth(1).unwrap_or("");
+            let url = format!("https://www.google.com/s2/favicons?domain={host}&sz=256");
+            ok = try_picture(&url, &tmp, &keep);
+        }
+    }
+    let _ = std::fs::remove_file(&tmp);
+    if !ok {
+        let _ = std::fs::remove_file(&keep);
+    }
+    // (what it was for: found, or tried and not found)
+    let _ = std::fs::write(note(l), &l.url);
+    ok
+}
+
+/// The icons a page (`url`) names - the big touch icon, its manifest's,
+/// its favicon - the biggest that's good enough saved as `keep`.
+fn from_page(url: &str, id: &str, tmp: &Path, keep: &Path) -> bool {
+    let d = dir();
     let mut cands: Vec<(String, i32)> = Vec::new();
-    let page = d.join(format!("{}.page", l.id));
-    if let Some(base) = download(&l.url, &page, "3M") {
+    let page = d.join(format!("{id}.page"));
+    if let Some(base) = download(url, &page, "3M") {
         let base = if base.contains("://") {
             base
         } else {
-            l.url.clone()
+            url.to_string()
         };
         let html = std::fs::read(&page)
             .map(|b| String::from_utf8_lossy(&b).to_string())
@@ -410,31 +531,15 @@ pub fn fetch(l: &Launcher) -> bool {
     // the biggest first
     cands.sort_by(|a, b| b.1.cmp(&a.1));
     cands.dedup_by(|a, b| a.0 == b.0);
-    let mut ok = false;
-    for (url, size) in cands.iter().take(8) {
+    for (u, size) in cands.iter().take(8) {
         if *size > 0 && *size < MIN_SIZE {
             continue;
         }
-        if try_picture(url, &tmp, &keep) {
-            ok = true;
-            break;
+        if try_picture(u, tmp, keep) {
+            return true;
         }
     }
-    // last try: a well-known icon service
-    if !ok {
-        if let Some((_, origin, _)) = parts(&l.url) {
-            let host = origin.split("://").nth(1).unwrap_or("");
-            let url = format!("https://www.google.com/s2/favicons?domain={host}&sz=256");
-            ok = try_picture(&url, &tmp, &keep);
-        }
-    }
-    let _ = std::fs::remove_file(&tmp);
-    if !ok {
-        let _ = std::fs::remove_file(&keep);
-    }
-    // (what it was for: found, or tried and not found)
-    let _ = std::fs::write(note(l), &l.url);
-    ok
+    false
 }
 
 /// Look for the pictures the launchers still need, then redraw.
@@ -478,6 +583,28 @@ pub fn fetch_missing(launchers: &[Launcher]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_addresses() {
+        for u in [
+            "https://192.168.1.5:8920",
+            "https://10.0.0.2/web",
+            "http://jellyfin.local:8096",
+            "https://nas:32400/web",
+            "https://100.101.5.6",
+            "https://[fd12::1]:8096/",
+            "https://media.lan",
+        ] {
+            assert!(local(u), "{u}");
+        }
+        for u in [
+            "https://www.netflix.com",
+            "https://8.8.8.8",
+            "https://app.plex.tv/desktop",
+        ] {
+            assert!(!local(u), "{u}");
+        }
+    }
 
     #[test]
     fn finds_icons() {

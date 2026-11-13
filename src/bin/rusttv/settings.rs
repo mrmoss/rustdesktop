@@ -333,6 +333,21 @@ pub fn open(tv: &Tv) {
     body.append(&upd);
 
     body.append(&ui::heading("Power"));
+    let t = tv.clone();
+    let (pb, pb_v) = ui::row(
+        "Power button",
+        power_button_name(&cfg.power_button),
+        move || {
+            let opts = POWER_BUTTON
+                .iter()
+                .map(|p| (p.0.to_string(), p.1.to_string()))
+                .collect();
+            ui::choose(&t, "Power button", opts, &t.cfg().power_button, |t, v| {
+                t.change(|c| c.power_button = v);
+            });
+        },
+    );
+    body.append(&pb);
     for (label, what) in [
         ("Suspend", "suspend"),
         ("Restart", "reboot"),
@@ -373,6 +388,7 @@ pub fn open(tv: &Tv) {
         susp_v.set_text(&minutes_text(c.auto_suspend));
         akbd_v.set_text(on_off(c.app_keyboard));
         poh_v.set_text(on_off(c.pause_on_home));
+        pb_v.set_text(power_button_name(&c.power_button));
     });
     tv.push_page(&pg, None, Some(refresh));
 }
@@ -501,6 +517,86 @@ fn updates_page(tv: &Tv) {
     }
     let pg = ui::page("Updates", &body);
     tv.push(&pg, None);
+}
+
+/// What the remote's power button does: (setting, what it's called).
+pub const POWER_BUTTON: &[(&str, &str)] = &[
+    ("suspend", "Suspend"),
+    ("menu", "Show the power menu"),
+    ("poweroff", "Shut down"),
+    ("nothing", "Nothing"),
+];
+
+fn power_button_name(v: &str) -> &'static str {
+    POWER_BUTTON
+        .iter()
+        .find(|p| p.0 == v)
+        .map(|p| p.1)
+        .unwrap_or("Suspend")
+}
+
+/// The power button was pressed: do what the setting says.
+pub fn power_button(tv: &Tv) {
+    match tv.cfg().power_button.as_str() {
+        "nothing" => {}
+        "poweroff" => power("poweroff"),
+        "menu" => {
+            tv.go_home();
+            let items: Vec<(String, Rc<dyn Fn(&Tv)>)> = [
+                ("Suspend", "suspend"),
+                ("Restart", "reboot"),
+                ("Shut down", "poweroff"),
+                ("Log out", "logout"),
+            ]
+            .into_iter()
+            .map(|(label, what)| {
+                let f: Rc<dyn Fn(&Tv)> = Rc::new(move |_t: &Tv| power(what));
+                (label.to_string(), f)
+            })
+            .collect();
+            ui::actions(tv, "Power", items);
+        }
+        _ => power("suspend"),
+    }
+}
+
+/// Keep the power button from the system (logind would shut down) while
+/// RustTV runs: it does what Settings > Power button says instead.
+/// (Held by a `systemd-inhibit` that lives as long as the session.)
+pub fn hold_power_key() {
+    if crate::launch::find("systemd-inhibit").is_none() {
+        return;
+    }
+    // (one from a RustTV before this one)
+    use std::os::unix::fs::MetadataExt;
+    if let Ok(m) = std::fs::metadata("/proc/self") {
+        let _ = std::process::Command::new("pkill")
+            .args(["-U", &m.uid().to_string(), "-f", "who=RustTV-power"])
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    let r = std::process::Command::new("systemd-inhibit")
+        .args([
+            "--what=handle-power-key",
+            "--who=RustTV-power",
+            "--why=RustTV does what Settings > Power button says",
+            "--mode=block",
+            "sleep",
+            "infinity",
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    match r {
+        Ok(c) => {
+            std::thread::spawn(move || {
+                let mut c = c;
+                let _ = c.wait();
+            });
+        }
+        Err(e) => eprintln!("rusttv: can't hold the power button: {e}"),
+    }
 }
 
 fn power(what: &str) {

@@ -2,6 +2,26 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.9.16
+
+RustTV:
+
+- Alt+F4 (and Super+Q) could close RustTV itself: they were sway's plain
+  `kill`. They now close the app on screen through RustTV, never RustTV.
+  And if RustTV ever stops, the session starts it again. (RustTouch's
+  shell is layer-shell surfaces, which `kill` can't close - unchanged.)
+- **Settings > Power button**: what the remote's power button does -
+  *Suspend* (to start with), *Show the power menu*, *Shut down* or
+  *Nothing*. RustTV keeps the button from the system (logind, which shut
+  down) while it runs (`systemd-inhibit --what=handle-power-key`).
+- Launcher icons from your own servers: a server on your own network (a
+  private or Tailscale address, a .local name...) is trusted with a
+  home-made certificate. When its page gives no icon, a service RustTV
+  knows (Plex, Jellyfin, Emby, Frigate, Home Assistant, Immich, Nextcloud,
+  Audiobookshelf, Navidrome) gets its icon from the project's official
+  site. Icons for your own servers are looked for again after 10 minutes,
+  not a day.
+
 ## 0.9.15
 
 - RustTV: Settings > AirPlay > **Restart AirPlay** - starts UxPlay again,

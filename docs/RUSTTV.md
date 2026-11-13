@@ -153,7 +153,14 @@ works too.
 A launcher's card shows the service's own icon when RustTV finds a good
 one on its page (its big "touch" icon or web app icons; kept in
 `~/.cache/rusttv/icons`), otherwise its color and name. **Edit → Icon** turns that off; **Reload
-icon** looks again.
+icon** looks again. A server on your own network (a private or Tailscale
+address, a `.local` name...) is trusted with a home-made certificate for
+this; if its page gives no icon, a service RustTV knows (Plex, Jellyfin,
+Emby, Frigate, Home Assistant, Immich, Nextcloud...) gets its icon from the
+project's own site.
+
+Alt+F4 (and Super+Q) closes the app on screen, never RustTV; if RustTV
+ever stops, the session starts it again.
 
 **Settings → Max open apps** (1 to start with, like a TV): opening one more
 closes the one opened longest ago.
@@ -259,6 +266,9 @@ browser, those services stream at up to 720p-1080p.
   Autologin, a helper (`/usr/local/libexec/rusttv-update`) does it with a
   polkit rule for the person at the TV: it only updates what's installed.
   Its log: `/var/log/rusttv-update.log`.
+* **Power button** – what the remote's power button does: *Suspend* (to
+  start with), *Show the power menu*, *Shut down*, or *Nothing*. (RustTV
+  keeps the button from the system, which would shut down, while it runs.)
 * **Power** – suspend, restart, shut down, log out.
 
 Typing (names, web addresses) uses an on-screen keyboard you move through

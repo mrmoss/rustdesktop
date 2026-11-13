@@ -27,7 +27,8 @@ for_window [app_id="at.yrlf.wl_mirror"] fullscreen enable
 
 # start on the home screen
 workspace home
-exec /usr/local/bin/rusttv
+# (started again if it ever stops)
+exec sh -c 'while true; do /usr/local/bin/rusttv; sleep 1; done'
 
 # --- the remote -------------------------------------------------------
 # Home (and the Windows key) comes back to RustTV from any app
@@ -35,9 +36,12 @@ bindsym XF86HomePage exec /usr/local/bin/rusttv --do home
 bindsym --release Super_L exec /usr/local/bin/rusttv --do home
 bindsym --release Super_R exec /usr/local/bin/rusttv --do home
 bindsym Mod4+h exec /usr/local/bin/rusttv --do home
-# close the app on screen
-bindsym Mod1+F4 kill
-bindsym Mod4+q kill
+# close the app on screen (through RustTV: never RustTV itself)
+bindsym Mod1+F4 exec /usr/local/bin/rusttv --do close
+bindsym Mod4+q exec /usr/local/bin/rusttv --do close
+# the power button: what Settings > Power button says (RustTV holds it
+# back from the system, which would shut down)
+bindsym XF86PowerOff exec /usr/local/bin/rusttv --do power-button
 # volume
 # (RustTV changes it and shows the volume pop-up; straight to wpctl if
 # RustTV isn't running)

@@ -1,6 +1,6 @@
 [package]
 name = "rustdesktop"
-version = "0.9.15"
+version = "0.9.16"
 edition = "2021"
 description = "RustDesktop: RustTouch, a tiny Android-style touch shell for Wayland, and RustTV, a home screen for a TV and remote"
 repository = "https://github.com/mrmoss/rustdesktop"

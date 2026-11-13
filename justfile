@@ -184,7 +184,7 @@ deb: _dist-build
     Conflicts: rusttouch
     Replaces: rusttouch
     Provides: rusttouch
-    Recommends: sway, pkexec, grim, swayidle, wlr-randr, wl-mirror, iio-sensor-proxy, network-manager, bluez, wireplumber, pulseaudio-utils, sound-theme-freedesktop, wtype, xdg-desktop-portal-gtk, xdg-desktop-portal-wlr
+    Recommends: sway, pkexec, uxplay, avahi-daemon, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-good, gstreamer1.0-libav, gstreamer1.0-gl, gstreamer1.0-x, grim, swayidle, wlr-randr, wl-mirror, iio-sensor-proxy, network-manager, bluez, wireplumber, pulseaudio-utils, sound-theme-freedesktop, wtype, xdg-desktop-portal-gtk, xdg-desktop-portal-wlr
     Suggests: foot, xdotool, chromium | firefox, openssl
     Homepage: {{homepage}}
     Description: Two simple desktops: RustTouch for tablets, RustTV for a TV

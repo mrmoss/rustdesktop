@@ -34,11 +34,11 @@ sudo install -Dm644 session/rusttv/dev.rusttv.autologin.policy /usr/share/polkit
 sudo install -Dm755 session/rusttv/rusttv-update        /usr/local/libexec/rusttv-update
 sudo install -Dm644 session/rusttv/dev.rusttv.update.policy /usr/share/polkit-1/actions/dev.rusttv.update.policy
 missing=""
-for p in sway chromium wpctl pkexec swayidle nmcli bluetoothctl wl-mirror; do
+for p in sway chromium wpctl pkexec swayidle nmcli bluetoothctl wl-mirror uxplay; do
   command -v "$p" >/dev/null || missing="$missing $p"
 done
 if [ -n "$missing" ]; then
   echo "Note: not installed:$missing"
-  echo "      sudo apt install sway wireplumber pkexec swayidle chromium network-manager bluez wl-mirror"
+  echo "      sudo apt install sway wireplumber pkexec swayidle chromium network-manager bluez wl-mirror uxplay gstreamer1.0-plugins-bad gstreamer1.0-plugins-good gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-x"
 fi
 echo "Installed. Pick 'RustTV' on the login screen (or turn on Settings > Log in by itself in RustTV)."

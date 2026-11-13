@@ -71,6 +71,12 @@ pub struct Config {
     pub app_keyboard: bool,
     /// going home pauses what's playing
     pub pause_on_home: bool,
+    /// AirPlay (UxPlay) is on: iPhones, iPads and Macs can show their screen
+    pub airplay: bool,
+    /// the name the TV has in AirPlay
+    pub airplay_name: String,
+    /// when a device types a code: "first", "always", "never"
+    pub airplay_code: String,
 }
 
 /// Accent colours: (colour, name). White is the starting one.
@@ -376,6 +382,9 @@ impl Default for Config {
             resolutions: Vec::new(),
             app_keyboard: true,
             pause_on_home: true,
+            airplay: true,
+            airplay_name: "RustTV".into(),
+            airplay_code: "first".into(),
         }
     }
 }
@@ -463,6 +472,13 @@ impl Config {
             main_output: str_of(&v, "main_output"),
             app_keyboard: v["app_keyboard"].as_bool().unwrap_or(true),
             pause_on_home: v["pause_on_home"].as_bool().unwrap_or(true),
+            airplay: v["airplay"].as_bool().unwrap_or(true),
+            airplay_name: Some(str_of(&v, "airplay_name"))
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or_else(|| "RustTV".into()),
+            airplay_code: Some(str_of(&v, "airplay_code"))
+                .filter(|c| crate::airplay::CODES.iter().any(|x| x.0 == c))
+                .unwrap_or_else(|| "first".into()),
             mirror_fit: Some(str_of(&v, "mirror_fit"))
                 .filter(|f| ["fit", "fill", "exact"].contains(&f.as_str()))
                 .unwrap_or_else(|| "fit".into()),
@@ -502,6 +518,9 @@ impl Config {
             "main_output": self.main_output,
             "app_keyboard": self.app_keyboard,
             "pause_on_home": self.pause_on_home,
+            "airplay": self.airplay,
+            "airplay_name": self.airplay_name,
+            "airplay_code": self.airplay_code,
             "mirror_fit": self.mirror_fit,
             "resolutions": self
                 .resolutions

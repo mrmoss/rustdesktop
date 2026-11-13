@@ -42,17 +42,10 @@ Six words are all you need:
 | **Recent apps** | ■ shows a card for each open app, with a picture of it. Tap one to go back to it, flick it up to close it. |
 | **Window group** | Apps sharing the screen. They show as one card in recent apps, and you swipe between groups along the button bar. |
 
-```
- ┌──────────────────────────────┐
- │ 12:30           Wi-Fi ▾ 87%  │ ← top bar: swipe down for the pull-down menu
- │                              │
- │   ▢    ▢    ▢    ▢           │
- │                              │ ← home screen (your apps sit on top of it)
- │   ▢    ▢    ▢                │
- │                              │
- │       ◀      ●      ■      ⌨ │ ← button bar: swipe up for the app drawer,
- └──────────────────────────────┘    sideways to switch window groups
-```
+![The home screen: the top bar, your apps, and the button bar](screenshots/rusttouch/home.png)
+
+Swipe down on the top bar for the pull-down menu, and up from the button bar at the bottom for
+the app drawer; swipe sideways along the button bar to switch window groups.
 
 RustTouch is the **shell**: the bars, menus, home screen and keyboard. The windows themselves
 are placed by [sway](https://swaywm.org), a small window manager that RustTouch tells what to do
@@ -100,7 +93,7 @@ Download `rustdesktop_<version>_amd64.deb` (or `arm64` for ARM; it has RustTV in
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS   # with SHA256SUMS from the same release: must say "OK"
-sudo apt install ./rustdesktop_0.8.6_amd64.deb
+sudo apt install ./rustdesktop_0.9.15_amd64.deb
 ```
 
 Restart, and on the login screen pick **RustTouch** (click your name, then the gear or session
@@ -125,8 +118,8 @@ gh attestation verify rustdesktop-*.tar.gz --repo mrmoss/rustdesktop   # optiona
 Then:
 
 ```sh
-tar xzf rustdesktop-0.8.6-linux-x86_64.tar.gz
-cd rustdesktop-0.8.6-linux-x86_64
+tar xzf rustdesktop-0.9.15-linux-x86_64.tar.gz
+cd rustdesktop-0.9.15-linux-x86_64
 ./deps.sh               # the helpers RustTouch uses (asks for your password)
 ./install-rusttouch.sh  # copies it into /usr/local and adds it to the login screen
 ```
@@ -208,13 +201,9 @@ A mouse works too: click the top bar or scroll on the home screen to open the me
 4. The apps now share the screen. Drag the black line between them to change their sizes, or
    tap it to flip, enlarge or close them.
 
-```
-  ■ recent apps                         the screen afterwards
- ┌─────────┐   ┌─────────┐             ┌──────────────┬──────────────┐
- │ Firefox │ ─▶│▌Terminal│     ═▶      │   Firefox    ┃   Terminal   │
- └─────────┘   └─────────┘             └──────────────┴──────────────┘
-   drag it onto the left edge                drag the line ┃ to resize
-```
+| Drag one app onto another in ■ | The screen afterwards |
+|---|---|
+| ![Recent apps](screenshots/rusttouch/recents.png) | ![Two apps side by side](screenshots/rusttouch/split.png) |
 
 Apps that share the screen are shown as one card, a "window group".
 

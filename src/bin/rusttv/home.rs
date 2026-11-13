@@ -625,6 +625,10 @@ pub fn refresh_running(h: &Home) {
             .iter()
             .find(|l| launch::launcher_window(l, std::slice::from_ref(&w)).is_some());
         let b = match launcher {
+            // a device mirroring its screen (AirPlay)
+            _ if crate::airplay::is_airplay(&w) => {
+                card("AirPlay", "Screen Mirroring", "running-card")
+            }
             Some(l) => launcher_card(l, "open"),
             None => {
                 // an installed app: its icon and name, like in Apps

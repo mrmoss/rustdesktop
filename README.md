@@ -10,7 +10,7 @@ its own choice on the login screen; installing one doesn't change the other, or 
 | | For | What it is | Guide |
 |---|---|---|---|
 | **RustTouch** | tablets, touch-screen laptops | An Android-style touch desktop: swipe up for your apps, swipe down for Wi-Fi, Bluetooth and the clock, ◀ ● ■ at the bottom, its own on-screen keyboard, apps side by side. | [docs/RUSTTOUCH.md](docs/RUSTTOUCH.md) |
-| **RustTV** | a TV box, a mini PC on the TV | A home screen made for a remote control: launchers for Plex, Jellyfin, Netflix, YouTube, Hulu... opened full screen, your apps, Wi-Fi, Bluetooth, sound and screens set up with the remote, an on-screen keyboard for sign-ins, media buttons. | [docs/RUSTTV.md](docs/RUSTTV.md) |
+| **RustTV** | a TV box, a mini PC on the TV | A home screen made for a remote control: launchers for Plex, Jellyfin, Netflix, YouTube, Hulu... opened full screen, your apps, Wi-Fi, Bluetooth, sound and screens set up with the remote, AirPlay screen mirroring from an iPhone, iPad or Mac, an on-screen keyboard for sign-ins, media buttons. | [docs/RUSTTV.md](docs/RUSTTV.md) |
 
 > **Please read this first.** This project was written almost entirely by an AI assistant and has
 > had very little human review or real-world testing. It is a hobby project. Keep your usual
@@ -32,7 +32,7 @@ Other Linux with GTK 4.10 or newer and sway may work, but isn't tested.
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS   # with SHA256SUMS from the same release: must say "OK"
-sudo apt install ./rustdesktop_0.8.6_amd64.deb
+sudo apt install ./rustdesktop_0.9.15_amd64.deb
 ```
 
 It replaces the older `rusttouch` package if you have it, and installs sway and the helpers both
@@ -95,7 +95,7 @@ Intel/AMD and ARM on Ubuntu 24.04 (they work on 26.04 too) and puts them in a **
 
 ```sh
 # 1. bump `version` in Cargo.toml (and CHANGELOG.md) and commit it
-git tag v0.8.6
+git tag v0.9.15
 git push --tags
 # 2. wait for the "release" workflow, look over the draft under Releases, then publish it
 ```

@@ -2,6 +2,217 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.9.15
+
+- RustTV: Settings > AirPlay > **Restart AirPlay** - starts UxPlay again,
+  fresh, from the remote (for a device that connects but whose screen
+  doesn't show; what restarting RustTV did).
+
+## 0.9.14
+
+RustTV, AirPlay - instead of 0.9.13's approach (tested: a UxPlay that has
+had a device sometimes gives the next one no picture; a freshly started
+one always does - which is why restarting RustTV fixed it):
+
+- UxPlay starts again, fresh, whenever mirroring ends, in every mode - now
+  in about a second (it was given 3 to stop; that was for the register it
+  never wrote).
+- UxPlay shows the video in a plain X11 video window, decoded by the
+  processor (`-avdec -vs xvimagesink`): what came up most reliably when
+  tried by hand. Needs `gstreamer1.0-x` (`./deps.sh` and the `.deb` bring
+  it).
+- Still there: if a device streams but no window comes, UxPlay starts
+  again after 6 seconds.
+
+## 0.9.13
+
+RustTV, AirPlay - the phone's screen sometimes didn't show:
+
+- Stopping mirroring and connecting again straight away got no picture:
+  RustTV started UxPlay again whenever mirroring ended, which takes a few
+  seconds. Now it only does with *Every time* (which needs a new identity
+  for the next device); with *First time only* and *Never*, UxPlay stays
+  up, ready.
+- UxPlay decodes the video with the processor (`-avdec`): with the
+  graphics card's decoder the window sometimes never came. (Tested: with
+  it, the window comes every time.)
+
+## 0.9.12
+
+RustTV, AirPlay:
+
+- With *First time only*, a device that had typed the code was asked for
+  one again and again (with no code on the TV): RustTV still told UxPlay to
+  check returning devices against its register (`-reg`), which UxPlay never
+  writes - so with it empty, every returning device was turned away. RustTV
+  no longer asks for it: a device that paired is let back in. (RustTV keeps
+  its own list of them, for Settings > AirPlay > Devices.)
+
+## 0.9.11
+
+RustTV, AirPlay - the phone's screen still sometimes didn't show:
+
+- The AirPlay window is known by its app id too (`GStreamer`, as UxPlay's
+  log showed), not only by its title.
+- 6 seconds after a device starts streaming, RustTV checks its window is
+  on screen. If not, it shows any window that may be UxPlay's; with none at
+  all, it starts UxPlay again (the device drops, and connecting again starts
+  clean - no more "connected" with nothing on the TV). Either way the log
+  lists the windows open then.
+
+## 0.9.10
+
+RustTV, AirPlay:
+
+- The phone's screen sometimes didn't show on the TV (the phone said it
+  was connected; reconnecting a few times helped): UxPlay's X11 window gets
+  its name - how RustTV knows it - a moment after it opens. Seen before
+  that, it was taken for an app and moved off the home screen without
+  showing. RustTV now puts the AirPlay window on screen as soon as it's
+  known, whenever that is, and doesn't count it as an app.
+- Unpair all (and unpairing one) shows the list without them straight
+  away, and the device count on the AirPlay page follows.
+
+## 0.9.9
+
+RustTV, AirPlay (from UxPlay's log of a real pairing):
+
+- The code shows exactly when a device asks for it (UxPlay's "CLIENT MUST
+  NOW ENTER PIN" line, with the code it prints), and goes away once the
+  device has typed it and is connecting. Before, the steps after typing it
+  (`pair-setup-pin`) showed it again.
+- The Devices list works: UxPlay doesn't keep its register, so RustTV keeps
+  its own (`~/.config/rusttv/airplay.devices`) - each device that connects
+  with First time only, with its name and model. Unpairing one gives the
+  TV a new identity (a device keeps its pairing itself, so there's no
+  sending just one away): it types a code again, and the others do once.
+- Docs: AirPlay names clashing on the network (two TVs with one name).
+
+## 0.9.8
+
+RustTV, AirPlay:
+
+- *First time only* didn't remember devices (the Devices list stayed
+  empty): RustTV stopped UxPlay outright when starting it again (after
+  each mirroring, or a settings change), before it could save the devices
+  that typed the code. Now it's asked to stop (and only forced after 3
+  seconds).
+- The Devices list reads UxPlay's own register too
+  (`~/.uxplay.register`), in case it keeps the devices there.
+- RustTV's log has the exact command UxPlay is started with.
+
+## 0.9.7
+
+RustTV, AirPlay:
+
+- The black screen: UxPlay's video window can be an X11 one (through
+  XWayland), which RustTV didn't know was AirPlay's - so it wasn't put on
+  its own screen, didn't show as AirPlay in Open now, and stayed after the
+  device went. It's now also known by its title (the TV's AirPlay name).
+  And whenever mirroring ends, UxPlay starts again, fresh (what restarting
+  RustTV did).
+- Unpairing really unpairs: devices know the TV by its AirPlay device ID
+  (UxPlay used the network card's), not just its key. The TV now has its
+  own (`~/.config/rusttv/airplay.id`): **Unpair all** makes a new one, and
+  **Every time** uses a new one for each mirroring.
+- Settings > AirPlay > **Devices**: the devices that typed the code, with
+  a Search row; OK on one unpairs it, plus Unpair all.
+- Each pairing gets its own code (a new one each time UxPlay starts).
+- Removed the Video setting (0.9.6): the black screen wasn't the video.
+
+Docs: how to copy RustTV's settings to another box.
+
+## 0.9.6
+
+RustTV, AirPlay:
+
+- Mirroring could show only a black screen (the graphics card's video
+  decoder - NVIDIA's above all - with a GL window under sway). New setting
+  Settings > AirPlay > **Video**: *Safe* (to start with) decodes with the
+  processor into a plain Wayland window (`uxplay -vs waylandsink -avdec`);
+  *Automatic* is UxPlay's own choice.
+- RustTV's log says when the code shows and why it's put away, and when
+  the AirPlay window opens (`grep -E "uxplay|airplay"
+  /run/user/$(id -u)/rusttv/sway.log`).
+
+## 0.9.5
+
+RustTV, AirPlay:
+
+- The code showed for only a second: it was put away when the device's
+  connection closed, but pairing itself closes the first connection (and
+  connects again once the code is typed). Now it stays until Back (or any
+  button), until mirroring starts, or for a minute. A button already on
+  its way as it shows doesn't close it either.
+
+## 0.9.4
+
+RustTV, AirPlay:
+
+- **Forget devices** and **Ask for a code: Every time** didn't make devices
+  type the code again: a device that paired once remembers the TV by its
+  AirPlay key, and the TV kept the same key. Now Forget devices throws the
+  key away too (the TV is new to every device), and Every time uses a new
+  key for each device - when mirroring ends, UxPlay starts again with a
+  fresh one.
+
+## 0.9.3
+
+RustTV, AirPlay:
+
+- The code on the TV can be put away: Back (or any button, or a click)
+  closes it. While it shows it has the keys - Home and the volume still
+  work. It also goes by itself when the device cancels or disconnects
+  (and, as before, when mirroring starts, or after a minute).
+
+## 0.9.2
+
+RustTV:
+
+- **Search** when adding a launcher or an app (and in any long list): a
+  Search row at the top opens the on-screen keyboard with what matches
+  beside it, narrowing with every letter. Right goes from the keys to the
+  results, Done to the first one, OK picks it; a real keyboard types too.
+- AirPlay: the code didn't show on the TV when a device asked for it -
+  UxPlay's messages waited in a buffer (it wasn't writing to a terminal).
+  RustTV now has it write them line by line (`stdbuf`), so the code pops up
+  as soon as it's asked for. Settings > AirPlay shows the code for new
+  devices too.
+- Pictures of the search and of Add a launcher.
+
+## 0.9.1
+
+RustTV, AirPlay:
+
+- UxPlay needs GStreamer's plugins (`gstreamer1.0-plugins-bad`, `-good`,
+  `-libav`, `-gl`), which Ubuntu's uxplay doesn't bring along: without them
+  it stops straight away and the TV never shows up. `./deps.sh` and the
+  `.deb` install them now, and Settings > AirPlay says when they're missing,
+  with the command to install them.
+- Settings > AirPlay said "Ready" while UxPlay kept stopping: it says
+  "Starting..." until UxPlay has kept going for a few seconds.
+
+## 0.9.0
+
+RustTV:
+
+- **AirPlay**: an iPhone, iPad or Mac shows its screen on the TV (Screen
+  Mirroring), or sends it a video or music. RustTV runs UxPlay
+  (`sudo apt install uxplay`) in the background and starts it again if it
+  stops. The mirrored screen fills the TV, shows in "Open now" as AirPlay
+  (Close stops it), and the TV goes back home when the device stops.
+  A new device types a 4-digit code that the TV shows big, over whatever is
+  on screen - the first time only (to start with), every time, or never.
+  Settings > AirPlay: on/off, the TV's name, when to ask for the code, and
+  forget devices.
+- `./deps.sh` and the `.deb` bring UxPlay along (and avahi-daemon, which it
+  needs to show up on the network).
+
+Docs:
+
+- No more text drawings: RustTouch's guide shows its pictures instead.
+- Pictures of RustTV's AirPlay settings and code.
+
 ## 0.8.6
 
 - Pictures of RustTV (`docs/screenshots/rusttv/`): the home screen,

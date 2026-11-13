@@ -201,6 +201,12 @@ pub fn open(tv: &Tv) {
         body.append(&b);
     }
 
+    let t = tv.clone();
+    let (ap, _) = ui::row("AirPlay", crate::airplay::summary(&cfg), move || {
+        crate::airplay::page(&t)
+    });
+    body.append(&ap);
+
     body.append(&ui::heading("Screen"));
     let t = tv.clone();
     let (scr, _) = ui::row("Screens", "", move || crate::netui::display_page(&t));
@@ -617,51 +623,77 @@ pub fn launchers_page(tv: &Tv) {
 
 /// Pick a ready-made launcher (or make your own).
 pub fn add_launcher(tv: &Tv) {
-    let body = ui::list();
-    let t = tv.clone();
-    let (own, _) = ui::row("Custom", "", move || {
-        keyboard::ask(&t, "Name", "", move |t, name| {
-            if name.is_empty() {
-                return;
-            }
-            keyboard::ask(
-                t,
-                &format!("Web address for {name}"),
-                "https://",
-                move |t, url| {
-                    let url = fix_url(&url);
-                    add(t, &name, &url, "#607d8b");
-                },
-            );
-        });
-    });
-    body.append(&own);
+    // (name, line under it, what OK does) - for the list and its search
+    let mut items: Vec<(String, String, Rc<dyn Fn(&Tv)>)> = Vec::new();
+    items.push((
+        "Custom".into(),
+        "any web address".into(),
+        Rc::new(|t: &Tv| {
+            keyboard::ask(t, "Name", "", move |t, name| {
+                if name.is_empty() {
+                    return;
+                }
+                keyboard::ask(
+                    t,
+                    &format!("Web address for {name}"),
+                    "https://",
+                    move |t, url| {
+                        let url = fix_url(&url);
+                        add(t, &name, &url, "#607d8b");
+                    },
+                );
+            });
+        }),
+    ));
     for p in PRESETS {
-        let t = tv.clone();
         let sub = if p.url.is_empty() {
             "your own server"
         } else {
             p.url
         };
-        let (b, _) = ui::row(p.name, sub, move || {
-            if p.url.is_empty() {
-                // your own server: ask where it is
-                keyboard::ask(
-                    &t,
-                    &format!("Your {} server's address", p.name),
-                    "https://",
-                    move |t, url| {
-                        let url = fix_url(&url);
-                        if url.trim_end_matches('/').ends_with("://") {
-                            return;
-                        }
-                        add(t, p.name, &url, p.color);
-                    },
-                );
-            } else {
-                add(&t, p.name, p.url, p.color);
-            }
-        });
+        items.push((
+            p.name.into(),
+            sub.into(),
+            Rc::new(move |t: &Tv| {
+                if p.url.is_empty() {
+                    // your own server: ask where it is
+                    keyboard::ask(
+                        t,
+                        &format!("Your {} server's address", p.name),
+                        "https://",
+                        move |t, url| {
+                            let url = fix_url(&url);
+                            if url.trim_end_matches('/').ends_with("://") {
+                                return;
+                            }
+                            add(t, p.name, &url, p.color);
+                        },
+                    );
+                } else {
+                    add(t, p.name, p.url, p.color);
+                }
+            }),
+        ));
+    }
+    let body = ui::list();
+    let t = tv.clone();
+    let found_items: Vec<(String, String, Rc<dyn Fn(&Tv)>)> = items.clone();
+    let (search, _) = ui::row("Search", "", move || {
+        let found = found_items
+            .iter()
+            .map(|(l, s, f)| keyboard::Found {
+                label: l.clone(),
+                sub: s.clone(),
+                pick: f.clone(),
+            })
+            .collect();
+        keyboard::search(&t, "Search: Add a launcher", found);
+    });
+    search.add_css_class("search-row");
+    body.append(&search);
+    for (label, sub, f) in items {
+        let t = tv.clone();
+        let (b, _) = ui::row(&label, &sub, move || f(&t));
         body.append(&b);
     }
     let pg = ui::page("Add a launcher", &body);

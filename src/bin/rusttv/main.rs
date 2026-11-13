@@ -17,6 +17,7 @@ mod audio;
 #[path = "../../nm.rs"]
 mod nm;
 
+mod airplay;
 mod appkbd;
 mod autologin;
 mod battery;
@@ -687,16 +688,39 @@ fn windows_changed(tv: &Tv, change: &str) {
     let wins = sway::windows();
     KNOWN.with(|k| {
         let mut k = k.borrow_mut();
-        for w in wins.iter().filter(|w| !k.contains(&w.id)) {
+        airplay::windows_changed(&wins);
+        // a device started mirroring: its window on screen. (Not only a new
+        // window: UxPlay's X11 one gets its name - how it's known - a moment
+        // after it opens.)
+        for w in wins
+            .iter()
+            .filter(|w| airplay::is_airplay(w) && !airplay::handled(w.id))
+        {
+            airplay::window_opened(w);
+        }
+        for w in wins
+            .iter()
+            .filter(|w| !k.contains(&w.id) && !airplay::is_airplay(w))
+        {
             launch::new_window(w);
         }
         *k = wins.iter().map(|w| w.id).collect();
     });
-    launch::windows_left(&wins);
+    // (the AirPlay window isn't an app RustTV opened: not counted as one,
+    // even if it was taken for one before it had its name)
+    let apps: Vec<sway::Window> = wins
+        .iter()
+        .filter(|w| !airplay::is_airplay(w))
+        .cloned()
+        .collect();
+    launch::windows_left(&apps);
     // an app that showed up on the home screen's workspace (opened by
     // something else, or Home was pressed while it was starting): give it a
     // workspace of its own
-    for w in wins.iter().filter(|w| w.workspace == sway::HOME) {
+    for w in wins
+        .iter()
+        .filter(|w| w.workspace == sway::HOME && !airplay::is_airplay(w))
+    {
         let ws = sway::free_workspace();
         // (shown if RustTV just opened it; otherwise it waits there)
         let show = if launch::take_just_opened() {
@@ -803,6 +827,9 @@ fn build(app: &gtk::Application) {
     }
     listen_actions();
     watch_sway();
+    // AirPlay (UxPlay), when it's on
+    airplay::clean_up();
+    airplay::apply(&tv.cfg());
     // the first run: nothing saved yet - save the starting launchers
     if !config::dir().join("rusttv.json").exists() {
         tv.cfg.borrow().save();

@@ -33,11 +33,11 @@ else
 fi
 
 # Optional runtime helpers (both desktops work without them; features just hide).
-# chromium, pkexec and openssl are for RustTV.
+# chromium, pkexec, openssl and uxplay (AirPlay) are for RustTV.
 for p in sway wl-mirror phoc wvkbd squeekboard swayidle grim wtype wlr-randr iio-sensor-proxy \
          xdg-desktop-portal-gtk xdg-desktop-portal-wlr \
          network-manager bluez wireplumber pulseaudio-utils sound-theme-freedesktop foot labwc xdotool \
-         chromium pkexec openssl; do
+         chromium pkexec openssl uxplay avahi-daemon gstreamer1.0-plugins-bad gstreamer1.0-plugins-good gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-x; do
   sudo apt install -y "$p" >/dev/null 2>&1 && echo "  ok      $p" || echo "  MISSING $p (optional)"
 done
 

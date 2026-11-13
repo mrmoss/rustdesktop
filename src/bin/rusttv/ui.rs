@@ -125,6 +125,31 @@ pub fn choose(
     let body = list();
     let pick = Rc::new(pick);
     let mut first: Option<gtk::Button> = None;
+    // a long list: a Search row at the top (the keyboard, and what matches)
+    if options.len() > 12 {
+        let items: Vec<(String, String)> = options.clone();
+        let (t, p, title2) = (tv.clone(), pick.clone(), title.to_string());
+        let (b, _) = row("Search", "", move || {
+            let found = items
+                .iter()
+                .map(|(v, l)| {
+                    let (p, v) = (p.clone(), v.clone());
+                    crate::keyboard::Found {
+                        label: l.clone(),
+                        sub: String::new(),
+                        pick: Rc::new(move |t: &Tv| {
+                            // (off the list too)
+                            t.back();
+                            p(t, v.clone());
+                        }),
+                    }
+                })
+                .collect();
+            crate::keyboard::search(&t, &format!("Search: {title2}"), found);
+        });
+        b.add_css_class("search-row");
+        body.append(&b);
+    }
     for (value, label) in options {
         let mark = if value == current { "✓" } else { "" };
         let (t, p, v) = (tv.clone(), pick.clone(), value.clone());

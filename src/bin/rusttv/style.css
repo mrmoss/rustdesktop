@@ -200,3 +200,15 @@ window.app-kbd { background: transparent; }
 }
 .app-kbd-box .typed { min-width: 760px; font-size: 26px; }
 .app-kbd-box button.key.sel { background: #f2f2f5; color: #10141f; }
+
+/* AirPlay: the code to type on the iPhone (over everything) */
+.airplay-box {
+  background: rgba(16, 18, 26, 0.985);
+  color: #f2f2f5;
+  border-radius: 28px;
+  padding: 36px 72px 40px 72px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7);
+}
+.airplay-title { font-size: 26px; font-weight: 600; opacity: 0.7; }
+.airplay-code { font-size: 120px; font-weight: 700; letter-spacing: 12px; }
+.airplay-note { font-size: 24px; opacity: 0.8; }

@@ -20,7 +20,7 @@ run `./deps.sh` and `./install-rusttv.sh` in it. Or from the project folder,
 built from source:
 
 ```sh
-./deps.sh                # sway, Chromium, NetworkManager, BlueZ... (asks for your password)
+./deps.sh                # sway, Chromium, UxPlay, NetworkManager, BlueZ... (asks for your password)
 ./install-rusttv.sh      # builds and installs RustTV (asks for sudo)
 ```
 
@@ -29,7 +29,7 @@ the login screen (or turn on **Settings → Autologin** in RustTV). To remove it
 again: `./uninstall-rusttv.sh` (your settings stay in `~/.config/rusttv`).
 
 It needs sway; launchers need Chromium (to start with), Chrome, Firefox or
-Waterfox. Wi-Fi, Bluetooth and sound need NetworkManager, BlueZ and
+Waterfox; AirPlay needs UxPlay. Wi-Fi, Bluetooth and sound need NetworkManager, BlueZ and
 WirePlumber; Ubuntu has them all.
 
 ## The remote
@@ -68,6 +68,71 @@ little while after the media buttons pause them. For those, give the
 launcher's own play / pause button **Send Space** (Edit → Remote buttons):
 that pauses with the site's own controls.
 
+## AirPlay
+
+An iPhone, iPad or Mac can show its screen on the TV, or send it a video
+or music, like to an Apple TV. On the iPhone or iPad: open Control Center,
+pick **Screen Mirroring**, then the TV's name (**RustTV** to start with). On a
+Mac: Control Center, Screen Mirroring. A video or music app's AirPlay button
+sends just what it's playing.
+
+The first time a device connects, the TV shows a 4-digit code over
+whatever is on screen; type it on the device. Back (or any button) puts
+the code away - do that if you cancel on the device; it goes by itself
+when mirroring starts, or after a minute. (Settings → AirPlay shows the code for new devices too.) The mirrored screen fills
+the TV and shows in **Open now** as **AirPlay** while it lasts: Home goes
+back to RustTV and leaves it running, OK on its card goes back to it, and
+holding OK and picking **Close** stops it. When the device stops mirroring,
+the TV goes back home.
+
+**Settings → AirPlay**:
+
+* **AirPlay** – on (to start with) or off: off, the TV doesn't show up.
+* **Name** – what the TV is called in Screen Mirroring (e.g. "Living Room").
+* **Ask for a code** – *First time only* (each device once, then it's
+  remembered), *Every time*, or *Never* (anyone on your network can show
+  their screen).
+* **Restart AirPlay** – starts UxPlay again, fresh: for when a device
+  connects but its screen doesn't show (what restarting RustTV did).
+* **Devices** – the devices that typed the code (with *First time only*),
+  with a Search row. OK on one unpairs it; **Unpair all** makes every
+  device type a code again. (A device keeps its pairing itself, so
+  unpairing one gives the TV a new identity: your other devices type a
+  code once too, and are back on the list after.)
+
+Each pairing gets its own code: RustTV picks a new one each time it starts
+UxPlay - and it starts UxPlay again, fresh, whenever mirroring ends (one
+that's had a device sometimes gives the next one no picture; a fresh one
+always does). That takes a second: connecting again straight away may need
+a second try.
+
+A device that typed the code remembers the TV by its AirPlay device ID
+and key (`~/.config/rusttv/airplay.id`, `airplay.pem`) and doesn't ask
+again while they're the same. So unpairing gives the TV a new ID and key -
+it's a new TV to every device - and **Every time** uses new ones for each
+mirroring. The list is RustTV's own (`~/.config/rusttv/airplay.devices`),
+from the devices that connect.
+
+If two TVs on your network have the same AirPlay name, UxPlay's log says
+`dnssd_register_airplay failed with error code -65548` (a name clash):
+give each its own name. (With Every time, music or a video sent with an
+app's AirPlay button - not mirroring - doesn't get new ones; the next
+mirroring does.)
+
+If the TV goes black, Home brings RustTV back; hold OK on the AirPlay card
+in Open now and pick Close to stop it. RustTV's log says what AirPlay did
+and why (`grep -E "uxplay|airplay" /run/user/$(id -u)/rusttv/sway.log`).
+
+It needs UxPlay, the AirPlay receiver for Linux, and GStreamer's plugins
+for the video and sound (Ubuntu's uxplay doesn't bring them):
+`sudo apt install uxplay gstreamer1.0-plugins-bad gstreamer1.0-plugins-good gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-x`
+(`./deps.sh` and the `.deb` install them all). Settings → AirPlay says what's
+missing. After installing, turn AirPlay off and on again to start it
+straight away. It uses Avahi to show up on the
+network (Ubuntu runs `avahi-daemon` already); a firewall, if you've turned
+one on, has to let it through. Its messages are in RustTV's log
+(lines starting `uxplay:`).
+
 ## The home screen
 
 * **Open now** – the apps open at the moment (only shown when there are
@@ -78,6 +143,12 @@ that pauses with the site's own controls.
   own from any web address. Jellyfin, Emby, Frigate and Home Assistant ask for your server's address
   (e.g. `jellyfin.local:8096`).
 * **Apps** – installed apps you put on the home screen (**+** to add one).
+
+Adding a launcher or an app (and any other long list) starts with a
+**Search** row: it opens the keyboard with what matches beside it,
+narrowing with every letter. Right goes from the keys to the results,
+**Done** to the first one, OK picks it. Typing on a real keyboard there
+works too.
 
 A launcher's card shows the service's own icon when RustTV finds a good
 one on its page (its big "touch" icon or web app icons; kept in
@@ -160,6 +231,7 @@ browser, those services stream at up to 720p-1080p.
 * **Max open apps**, **Remote buttons** – see above.
 * **Default browser** – for new launchers: Chromium (to start with),
   Chrome, Firefox or Waterfox. **Separate history** – see above.
+* **AirPlay** – see [AirPlay](#airplay).
 * **Wi-Fi**, **Bluetooth**, **Sound** – networks (passwords typed with the
   remote), Bluetooth devices (remotes, game pads, headphones, speakers),
   the volume and which output/input to use. Need NetworkManager, BlueZ
@@ -207,6 +279,26 @@ Turn it off with **Settings → Keyboard in apps**; give a remote button
   `keyboard`, `volume-up`, `volume-down`, `mute`, `play-pause`, `seek-back`,
   `seek-forward`, `previous`, `next`, `stop`.
 
+## Copying your settings to another box
+
+Everything you set up (launchers, apps, remote buttons, the look, AirPlay's
+name and code setting...) is in `~/.config/rusttv/rusttv.json`. Copy that
+folder to the other box, leaving out the AirPlay identity (each TV should
+have its own), then log out and back in there:
+
+```sh
+rsync -av --exclude 'airplay.*' ~/.config/rusttv/ OTHER-BOX:.config/rusttv/
+```
+
+It works between different machines: screens the other box doesn't have
+are left alone (it picks its screen and resolution by itself - set
+**Screens** and **Scale** there if you want), apps it hasn't got installed
+don't show, and a wallpaper picture that isn't there falls back to the
+background colour. Copy the picture too if you use one. Not copied:
+**Autologin** (a system setting - turn it on there), sign-ins inside the
+launchers (`~/.local/share/rusttv/profiles/`: copying that folder too
+may carry them over, but sites often ask again on a new machine).
+
 ## Pictures
 
 | Home screen | Settings |
@@ -214,8 +306,12 @@ Turn it off with **Settings → Keyboard in apps**; give a remote button
 | ![Home screen](screenshots/rusttv/home.png) | ![Settings](screenshots/rusttv/settings.png) |
 | **Wi-Fi** | **Sound** |
 | ![Wi-Fi](screenshots/rusttv/wifi.png) | ![Sound](screenshots/rusttv/sound.png) |
-| **The keyboard in apps** (over a web page's sign-in) | |
-| ![The keyboard for apps](screenshots/rusttv/keyboard.png) | |
+| **The keyboard in apps** (over a web page's sign-in) | **AirPlay** |
+| ![The keyboard for apps](screenshots/rusttv/keyboard.png) | ![AirPlay settings](screenshots/rusttv/airplay.png) |
+| **The AirPlay code** (a device connecting for the first time) | **Add a launcher** |
+| ![The AirPlay code](screenshots/rusttv/airplay-code.png) | ![Add a launcher](screenshots/rusttv/add-launcher.png) |
+| **Search** (the keyboard, and what matches) | **AirPlay devices** |
+| ![Search](screenshots/rusttv/search.png) | ![AirPlay devices](screenshots/rusttv/airplay-devices.png) |
 
 These are mock-ups drawn from RustTV's own style sheet and layout (the same
 colours, sizes and text), with the launchers' plain colour cards rather than

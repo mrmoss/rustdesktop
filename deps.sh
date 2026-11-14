@@ -33,13 +33,21 @@ else
 fi
 
 # Optional runtime helpers (both desktops work without them; features just hide).
-# chromium, pkexec, openssl and uxplay (AirPlay) are for RustTV.
+TV_EXTRAS="chromium pkexec openssl bubblewrap uxplay avahi-daemon gstreamer1.0-plugins-bad gstreamer1.0-plugins-good gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-x"
 for p in sway wl-mirror phoc wvkbd squeekboard swayidle grim wtype wlr-randr iio-sensor-proxy \
          xdg-desktop-portal-gtk xdg-desktop-portal-wlr \
-         network-manager bluez wireplumber pulseaudio-utils sound-theme-freedesktop foot labwc xdotool \
-         chromium pkexec openssl uxplay avahi-daemon gstreamer1.0-plugins-bad gstreamer1.0-plugins-good gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-x; do
+         network-manager bluez wireplumber pulseaudio-utils sound-theme-freedesktop foot labwc xdotool; do
   sudo apt install -y "$p" >/dev/null 2>&1 && echo "  ok      $p" || echo "  MISSING $p (optional)"
 done
+# RustTV's (launchers' browser, AirPlay - a network service, so only when
+# you ask for it): ./deps.sh --tv
+case " $* " in
+  *" --tv "*)
+    for p in $TV_EXTRAS; do
+      sudo apt install -y "$p" >/dev/null 2>&1 && echo "  ok      $p" || echo "  MISSING $p (optional)"
+    done ;;
+  *) echo "  (RustTV's extras - Chromium, AirPlay: ./deps.sh --tv)" ;;
+esac
 
 if [ -n "$PREBUILT" ]; then
   echo

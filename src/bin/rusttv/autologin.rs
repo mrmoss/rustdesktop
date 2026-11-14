@@ -104,15 +104,55 @@ pub fn state() -> State {
 
 /// Turn it on or off (asks the helper; blocking - run it off the main
 /// thread). Err: why it didn't work.
-pub fn set(on: bool) -> Result<(), String> {
+///
+/// Turning it on takes away the password at the login screen, so it takes
+/// an administrator's password (`password`, typed on RustTV's keyboard and
+/// given to sudo). Turning it off only makes things stricter: no password
+/// (pkexec, allowed for the person at the TV).
+pub fn set(on: bool, password: Option<String>) -> Result<(), String> {
     if !std::path::Path::new(helper_path()).exists() {
         return Err("the auto-login helper isn't installed (run install-rusttv.sh)".into());
     }
-    let out = Command::new("pkexec")
-        .arg(helper_path())
-        .arg(if on { "enable" } else { "disable" })
-        .output()
-        .map_err(|e| format!("couldn't ask for permission: {e}"))?;
+    let out = if on {
+        let Some(pw) = password else {
+            return Err("it needs your password".into());
+        };
+        if crate::launch::find("sudo").is_none() {
+            return Err("sudo isn't installed".into());
+        }
+        let mut child = Command::new("sudo")
+            .args(["-S", "-p", ""])
+            .arg(helper_path())
+            .arg("enable")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("couldn't ask for permission: {e}"))?;
+        if let Some(mut i) = child.stdin.take() {
+            use std::io::Write;
+            let _ = writeln!(i, "{pw}");
+        }
+        let out = child
+            .wait_with_output()
+            .map_err(|e| format!("couldn't ask for permission: {e}"))?;
+        if !out.status.success() {
+            let msg = String::from_utf8_lossy(&out.stderr).to_lowercase();
+            if msg.contains("sudoers") || msg.contains("not allowed") {
+                return Err("this account isn't an administrator".into());
+            }
+            if msg.contains("incorrect") || msg.contains("try again") || msg.contains("password") {
+                return Err("wrong password".into());
+            }
+        }
+        out
+    } else {
+        Command::new("pkexec")
+            .arg(helper_path())
+            .arg("disable")
+            .output()
+            .map_err(|e| format!("couldn't ask for permission: {e}"))?
+    };
     if out.status.success() {
         Ok(())
     } else {

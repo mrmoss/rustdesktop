@@ -32,7 +32,7 @@ Other Linux with GTK 4.10 or newer and sway may work, but isn't tested.
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS   # with SHA256SUMS from the same release: must say "OK"
-sudo apt install ./rustdesktop_0.9.16_amd64.deb
+sudo apt install ./rustdesktop_0.9.19_amd64.deb
 ```
 
 It replaces the older `rusttouch` package if you have it, and installs sway and the helpers both
@@ -43,7 +43,7 @@ package manager (see [installing RustTouch](docs/RUSTTOUCH.md#install)).
 **From source**, open a terminal in this folder:
 
 ```sh
-./deps.sh               # what building and running both need (asks for your password)
+./deps.sh               # what building and running both need (asks for your password; --tv adds RustTV's Chromium and AirPlay)
 ./install-rusttouch.sh  # RustTouch: builds it and adds "RustTouch" to the login screen
 ./install-rusttv.sh     # RustTV: builds it and adds "RustTV" to the login screen
 ```
@@ -80,6 +80,7 @@ plain scripts do the same jobs if you'd rather not install it.
 | Command | Script | What it does |
 |---|---|---|
 | `just deps` | `./deps.sh` | Install what building and running both desktops needs. |
+| `just deps-tv` | `./deps.sh --tv` | The same, plus RustTV's extras (Chromium for launchers, UxPlay for AirPlay). |
 | `just build` | | Build RustTouch, its settings app and RustTV in release mode. |
 | `just test` | | Run the tests. |
 | `just install` | `./install-rusttouch.sh` | Build and install RustTouch into `/usr/local`, with a *RustTouch* entry on the login screen. |
@@ -95,7 +96,7 @@ Intel/AMD and ARM on Ubuntu 24.04 (they work on 26.04 too) and puts them in a **
 
 ```sh
 # 1. bump `version` in Cargo.toml (and CHANGELOG.md) and commit it
-git tag v0.9.16
+git tag v0.9.19
 git push --tags
 # 2. wait for the "release" workflow, look over the draft under Releases, then publish it
 ```

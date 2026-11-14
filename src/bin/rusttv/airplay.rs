@@ -46,8 +46,12 @@ static STATUS: Mutex<Status> = Mutex::new(Status::Off);
 static RUNNING: Mutex<Option<(String, String)>> = Mutex::new(None);
 /// the name the running UxPlay has (its X11 window has it as its title)
 static NAME: Mutex<String> = Mutex::new(String::new());
-/// the code the running UxPlay asks for (shown in Settings > AirPlay too)
-static PIN: Mutex<Option<String>> = Mutex::new(None);
+/// whether the running UxPlay is sandboxed (None: not running)
+static SANDBOXED: Mutex<Option<bool>> = Mutex::new(None);
+/// UxPlay's sandbox (bubblewrap) doesn't work here: run it without
+static NO_SANDBOX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// a device has just typed the code (to check UxPlay kept it)
+static JUST_PAIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[derive(Clone, PartialEq)]
 enum Status {
@@ -92,12 +96,34 @@ pub fn installed() -> bool {
 
 /// Devices that typed the code once (the "first time only" setting).
 fn register() -> PathBuf {
-    config::dir().join("airplay.register")
+    airplay_dir().join("register")
+}
+
+/// UxPlay's own folder: its key and register (the only part of your home
+/// it sees, in its sandbox).
+fn airplay_dir() -> PathBuf {
+    config::dir().join("airplay")
+}
+
+/// (from before 0.9.17: the files were next to rusttv.json)
+fn move_old_files() {
+    let _ = std::fs::create_dir_all(airplay_dir());
+    for (old, new) in [
+        ("airplay.pem", key_file()),
+        ("airplay.id", id_file()),
+        ("airplay.register", register()),
+    ] {
+        let old = config::dir().join(old);
+        if old.exists() && !new.exists() {
+            let _ = std::fs::rename(&old, &new);
+        }
+        let _ = std::fs::remove_file(&old);
+    }
 }
 
 /// The TV's AirPlay key: kept, so devices know it's the same TV next time.
 fn key_file() -> PathBuf {
-    config::dir().join("airplay.pem")
+    airplay_dir().join("key.pem")
 }
 
 /// The TV's AirPlay device ID (what devices know it by), kept in a file;
@@ -135,22 +161,7 @@ fn device_id(fresh: bool) -> String {
 }
 
 fn id_file() -> PathBuf {
-    config::dir().join("airplay.id")
-}
-
-/// A new 4-digit code.
-fn new_code() -> String {
-    let mut b = [0u8; 2];
-    let n = std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut b))
-        .map(|_| u16::from_le_bytes(b) as u32)
-        .unwrap_or_else(|_| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.subsec_nanos())
-                .unwrap_or(4827)
-        });
-    format!("{:04}", 1000 + n % 9000)
+    airplay_dir().join("id")
 }
 
 /// Is `w` the AirPlay window (UxPlay's, while a device mirrors)?
@@ -196,6 +207,100 @@ pub fn apply(cfg: &Config) {
     std::thread::spawn(move || supervise(g, name, code));
 }
 
+/// UxPlay's sandbox (bubblewrap): the system's programs and settings (read
+/// only), the TV's picture (X11) and sound sockets, the system bus (to show
+/// up on the network, through Avahi) - and of your home folder only its own
+/// AirPlay folder. Its own process list; the network is shared (it's a
+/// network service).
+fn sandbox_args() -> Vec<std::ffi::OsString> {
+    let mut a: Vec<std::ffi::OsString> = Vec::new();
+    let mut add = |xs: &[&str]| a.extend(xs.iter().map(std::ffi::OsString::from));
+    add(&["--ro-bind", "/usr", "/usr"]);
+    for (link, to) in [
+        ("/bin", "usr/bin"),
+        ("/sbin", "usr/sbin"),
+        ("/lib", "usr/lib"),
+        ("/lib64", "usr/lib64"),
+        ("/lib32", "usr/lib32"),
+    ] {
+        // (merged /usr: these are links to it)
+        if std::fs::read_link(link).is_ok() {
+            add(&["--symlink", to, link]);
+        } else if std::path::Path::new(link).is_dir() {
+            add(&["--ro-bind", link, link]);
+        }
+    }
+    add(&[
+        "--ro-bind",
+        "/etc",
+        "/etc",
+        "--proc",
+        "/proc",
+        "--dev",
+        "/dev",
+        "--tmpfs",
+        "/tmp",
+        "--ro-bind-try",
+        "/tmp/.X11-unix",
+        "/tmp/.X11-unix",
+        "--tmpfs",
+        "/run",
+        "--ro-bind-try",
+        "/run/dbus",
+        "/run/dbus",
+        "--ro-bind-try",
+        "/run/avahi-daemon",
+        "/run/avahi-daemon",
+        "--ro-bind-try",
+        "/run/systemd/resolve",
+        "/run/systemd/resolve",
+        "--ro-bind-try",
+        "/var/lib/dbus",
+        "/var/lib/dbus",
+        "--unshare-pid",
+        "--unshare-uts",
+        "--unshare-cgroup-try",
+        "--die-with-parent",
+        "--new-session",
+    ]);
+    let rt = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
+    if !rt.is_empty() {
+        add(&["--dir", &rt]);
+        for s in ["pulse", "pipewire-0"] {
+            let p = format!("{rt}/{s}");
+            add(&["--ro-bind-try", &p, &p]);
+        }
+    }
+    let home = config::home().to_string_lossy().to_string();
+    let ap = airplay_dir().to_string_lossy().to_string();
+    let reg = airplay_dir()
+        .join("gst-registry.bin")
+        .to_string_lossy()
+        .to_string();
+    add(&[
+        "--tmpfs",
+        &home,
+        "--bind",
+        &ap,
+        &ap,
+        "--setenv",
+        "HOME",
+        &home,
+        // (GStreamer's list of its plugins, kept between starts)
+        "--setenv",
+        "GST_REGISTRY",
+        &reg,
+        "--chdir",
+        &ap,
+    ]);
+    // (X11's key, if there is one - after the home folder's hidden: it may
+    // be in it)
+    if let Ok(xa) = std::env::var("XAUTHORITY") {
+        add(&["--ro-bind-try", &xa, &xa]);
+    }
+    a
+}
+
 /// Stop UxPlay left over from before (RustTV started again).
 pub fn clean_up() {
     use std::os::unix::fs::MetadataExt;
@@ -213,23 +318,20 @@ fn supervise(g: u64, name: String, code: String) {
     let mut quick_stops = 0u32;
     let mut renewed = false;
     let _ = std::fs::create_dir_all(config::dir());
+    move_old_files();
     while current() {
         let Some(exe) = uxplay() else {
             *STATUS.lock().unwrap() = Status::Missing;
             return;
         };
-        let pin = (code != "never").then(new_code);
-        *PIN.lock().unwrap() = pin.clone();
+        let ask = code != "never";
         // (its messages line by line, as they come: piped, they'd otherwise
         // wait in a buffer - and the code would show long after it's asked)
-        let mut cmd = match find("stdbuf") {
-            Some(sb) => {
-                let mut c = Command::new(sb);
-                c.args(["-oL", "-eL"]).arg(exe);
-                c
-            }
-            None => Command::new(exe),
-        };
+        let mut args: Vec<std::ffi::OsString> = Vec::new();
+        if let Some(sb) = find("stdbuf") {
+            args.extend([sb.into(), "-oL".into(), "-eL".into()]);
+        }
+        args.push(exe.into());
         // its name (without "@hostname"); a new device takes over from the
         // one mirroring, like on a TV.
         // A device that typed the code once knows this TV by its device ID
@@ -237,33 +339,65 @@ fn supervise(g: u64, name: String, code: String) {
         // time" gets new ones each time (UxPlay starts again when mirroring
         // ends); the others keep them ("Unpair all" makes new ones).
         *NAME.lock().unwrap() = name.clone();
-        cmd.args([
-            "-n",
-            &name,
-            "-nh",
-            "-nohold",
-            // the video decoded by the processor, shown in a plain X11 video
-            // window: what came up most reliably (tested by hand)
-            "-avdec",
-            "-vs",
-            "xvimagesink",
-            "-m",
-            &device_id(code == "always"),
-        ]);
+        let mut ux: Vec<std::ffi::OsString> = Vec::new();
+        ux.extend(
+            [
+                "-n",
+                &name,
+                "-nh",
+                "-nohold",
+                // the video decoded by the processor, shown in a plain X11 video
+                // window: what came up most reliably (tested by hand)
+                "-avdec",
+                "-vs",
+                "xvimagesink",
+                "-m",
+                &device_id(code == "always"),
+            ]
+            .map(std::ffi::OsString::from),
+        );
         if code != "always" {
-            cmd.arg("-key").arg(key_file());
+            ux.push("-key".into());
+            ux.push(key_file().into());
         }
-        // (no -reg: UxPlay never wrote its register, and with an empty one
-        // it turned away devices that had typed the code - they were asked
-        // again and again. Without it, a device that paired is let back in:
-        // "first time only". RustTV keeps its own list of them.)
-        if let Some(p) = &pin {
-            cmd.args(["-pin", p]);
+        if ask {
+            // a new code for each device that asks (UxPlay picks it and says
+            // it: shown on the TV) - no trying all 9,000 against one code
+            ux.push("-pin".into());
+            // the devices that typed it: only they're let back in without
+            // one (without a register, any device saying it had paired
+            // would be). It has to be there for UxPlay to use it; "every
+            // time" starts with it empty.
+            let reg = register();
+            if code == "always" || !reg.exists() {
+                let _ = std::fs::write(&reg, "");
+            }
+            ux.push("-reg".into());
+            ux.push(reg.into());
         }
+        args.extend(ux);
+        let sandboxed = !NO_SANDBOX.load(Ordering::SeqCst) && find("bwrap").is_some();
+        let mut cmd = if sandboxed {
+            let mut c = Command::new("bwrap");
+            c.args(sandbox_args()).arg("--").args(&args);
+            c
+        } else {
+            let mut c = Command::new(&args[0]);
+            c.args(&args[1..]);
+            c
+        };
         cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        eprintln!("rusttv: airplay: starting {cmd:?}");
+        eprintln!(
+            "rusttv: airplay: starting UxPlay{}",
+            if sandboxed {
+                " (sandboxed)"
+            } else {
+                " (NOT sandboxed)"
+            }
+        );
+        *SANDBOXED.lock().unwrap() = Some(sandboxed);
         let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
@@ -284,13 +418,22 @@ fn supervise(g: u64, name: String, code: String) {
         // shows the code on the TV
         RENEW.store(false, Ordering::SeqCst);
         let remember = code == "first";
+        let saw_bwrap_error = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let watch = |r: Box<dyn Read + Send>| {
-            let pin = pin.clone();
+            let bw = saw_bwrap_error.clone();
             // (not on a device going: pairing itself connects twice - only
             // a finished mirroring, below, gets a new key)
             std::thread::spawn(move || {
                 for line in BufReader::new(r).lines().map_while(Result::ok) {
-                    eprintln!("uxplay: {line}");
+                    // (the code itself stays out of the log)
+                    if line.contains("MUST NOW ENTER PIN") {
+                        eprintln!("uxplay: *** CLIENT MUST NOW ENTER PIN = \"****\"");
+                    } else {
+                        eprintln!("uxplay: {line}");
+                    }
+                    if line.starts_with("bwrap:") {
+                        bw.store(true, Ordering::SeqCst);
+                    }
                     let low = line.to_ascii_lowercase();
                     if low.contains("gstreamer plugin") && low.contains("not found") {
                         *STATUS.lock().unwrap() = Status::NoPlugins;
@@ -305,9 +448,9 @@ fn supervise(g: u64, name: String, code: String) {
                             .split('"')
                             .nth(1)
                             .filter(|c| c.len() == 4 && c.chars().all(|c| c.is_ascii_digit()))
-                            .map(str::to_string)
-                            .or_else(|| pin.clone());
+                            .map(str::to_string);
                         if let Some(c) = shown {
+                            JUST_PAIRED.store(true, Ordering::SeqCst);
                             eprintln!("rusttv: airplay: showing the code");
                             crate::on_main(move || show_code(&c));
                         }
@@ -325,6 +468,20 @@ fn supervise(g: u64, name: String, code: String) {
                         crate::on_main(|| hide_code_for("the device typed it - it's connecting"));
                         if remember {
                             remember_device(&d);
+                        }
+                        // (it typed the code: UxPlay should have kept it in
+                        // its register - otherwise it'll be asked again)
+                        if JUST_PAIRED.swap(false, Ordering::SeqCst) {
+                            std::thread::spawn(|| {
+                                std::thread::sleep(Duration::from_secs(3));
+                                let n = std::fs::metadata(register()).map(|m| m.len()).unwrap_or(0);
+                                if n == 0 {
+                                    eprintln!(
+                                        "rusttv: airplay: UxPlay didn't keep the device that typed the code \
+                                         in its register - it'll be asked again next time"
+                                    );
+                                }
+                            });
                         }
                     }
                 }
@@ -345,6 +502,15 @@ fn supervise(g: u64, name: String, code: String) {
             }
             if let Ok(Some(st)) = child.try_wait() {
                 eprintln!("rusttv: uxplay stopped ({st})");
+                // the sandbox itself didn't work here: without it, then
+                if sandboxed
+                    && started.elapsed() < Duration::from_secs(5)
+                    && saw_bwrap_error.load(Ordering::SeqCst)
+                {
+                    eprintln!("rusttv: airplay: bubblewrap doesn't work here - running UxPlay without a sandbox");
+                    NO_SANDBOX.store(true, Ordering::SeqCst);
+                    renewed = true;
+                }
                 break;
             }
             // streaming, but no window came: start again (the device drops,
@@ -385,6 +551,16 @@ fn supervise(g: u64, name: String, code: String) {
             quick_stops += 1;
         } else {
             quick_stops = 0;
+        }
+        // (stopping again and again in its sandbox: the sandbox may be
+        // what's wrong here - without it, then)
+        if quick_stops >= 3 && sandboxed && !NO_SANDBOX.load(Ordering::SeqCst) {
+            eprintln!(
+                "rusttv: airplay: UxPlay keeps stopping in its sandbox - running it without one"
+            );
+            NO_SANDBOX.store(true, Ordering::SeqCst);
+            quick_stops = 0;
+            continue;
         }
         if quick_stops >= 3 {
             let mut st = STATUS.lock().unwrap();
@@ -865,8 +1041,8 @@ fn status_text(cfg: &Config) -> String {
                 "Ready: \u{201c}{}\u{201d} in Screen Mirroring",
                 shown_name(cfg)
             );
-            if let Some(p) = PIN.lock().unwrap().as_ref() {
-                t.push_str(&format!(" \u{b7} code for new devices: {p}"));
+            if *SANDBOXED.lock().unwrap() == Some(false) {
+                t.push_str(" (UxPlay isn't sandboxed: install bubblewrap)");
             }
             t
         }

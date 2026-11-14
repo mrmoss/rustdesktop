@@ -24,9 +24,13 @@ pub struct Launcher {
     /// arrow keys jump between the page's buttons and links (Chromium's
     /// "spatial navigation": opens in Chromium or Chrome)
     pub spatial: bool,
-    /// trust the certificate the site has now, even if it's home-made (a
-    /// camera or server at home): no "not private" warning each time
+    /// trust the site's certificate, even if it's home-made (a camera or
+    /// server at home): no "not private" warning each time
     pub trust_cert: bool,
+    /// the certificate key trusted (its fingerprint, saved when you turned
+    /// Trust certificate on and saw it): only that one is trusted - a
+    /// different one gets the browser's warning
+    pub cert_pin: String,
     /// this app's own remote buttons (Edit > Remote buttons)
     pub keys: Vec<RemoteKey>,
 }
@@ -125,8 +129,15 @@ fn parse_keys(v: &Value) -> Vec<RemoteKey> {
             if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
                 return None;
             }
+            // (and only the jobs RustTV has)
+            let action = k["action"].as_str()?.to_string();
+            if !crate::remote::ACTIONS.iter().any(|a| a.0 == action)
+                && !crate::remote::APP_ACTIONS.iter().any(|a| a.0 == action)
+            {
+                return None;
+            }
             Some(RemoteKey {
-                action: k["action"].as_str()?.to_string(),
+                action,
                 keyval: k["keyval"].as_u64()? as u32,
                 name,
                 code: k["code"].as_u64().unwrap_or(0) as u32,
@@ -350,6 +361,7 @@ pub fn new_launcher(id: String, name: &str, url: &str, color: &str, browser: Str
         tv: true,
         spatial: !url.contains("youtube.com"),
         trust_cert: false,
+        cert_pin: String::new(),
         keys: Vec::new(),
     }
 }
@@ -386,7 +398,9 @@ impl Default for Config {
             app_keyboard: true,
             pause_on_home: true,
             power_button: "suspend".into(),
-            airplay: true,
+            // (off to start with: it's a network service - turn it on in
+            // Settings > AirPlay)
+            airplay: false,
             airplay_name: "RustTV".into(),
             airplay_code: "first".into(),
         }
@@ -430,7 +444,17 @@ impl Config {
                 picture: l["picture"].as_bool().unwrap_or(true),
                 tv: l["tv"].as_bool().unwrap_or(false),
                 spatial: l["spatial"].as_bool().unwrap_or(false),
-                trust_cert: l["trust_cert"].as_bool().unwrap_or(false),
+                // (trusted before 0.9.17, without a saved key: off - turn it
+                // on again, and check the key it shows)
+                trust_cert: l["trust_cert"].as_bool().unwrap_or(false)
+                    && !str_of(&l, "cert_pin").is_empty(),
+                cert_pin: Some(str_of(&l, "cert_pin"))
+                    .filter(|p| {
+                        p.len() == 44
+                            && p.chars()
+                                .all(|c| c.is_ascii_alphanumeric() || "+/=".contains(c))
+                    })
+                    .unwrap_or_default(),
                 keys: parse_keys(&l["keys"]),
             });
         }
@@ -479,7 +503,7 @@ impl Config {
             power_button: Some(str_of(&v, "power_button"))
                 .filter(|p| crate::settings::POWER_BUTTON.iter().any(|x| x.0 == p))
                 .unwrap_or_else(|| "suspend".into()),
-            airplay: v["airplay"].as_bool().unwrap_or(true),
+            airplay: v["airplay"].as_bool().unwrap_or(false),
             airplay_name: Some(str_of(&v, "airplay_name"))
                 .filter(|n| !n.trim().is_empty())
                 .unwrap_or_else(|| "RustTV".into()),
@@ -512,6 +536,7 @@ impl Config {
                 "browser": l.browser, "color": l.color,
                 "picture": l.picture, "tv": l.tv, "spatial": l.spatial,
                 "trust_cert": l.trust_cert,
+                "cert_pin": l.cert_pin,
                 "keys": keys_json(&l.keys),
             })).collect::<Vec<_>>(),
             "max_apps": self.max_apps,

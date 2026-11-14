@@ -8,6 +8,8 @@
 SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEY}=="1", ENV{ID_INPUT_KEYBOARD}!="1", TAG+="uaccess"
 SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Power Button", TAG+="uaccess"
 # Mice and touchpads: RustTouch only looks at their button presses, so that
-# clicking with a mouse can put the on-screen keyboard away.
-SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_TOUCHSCREEN}!="1", ENV{ID_INPUT_TABLET}!="1", TAG+="uaccess"
-SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_TOUCHPAD}=="1", TAG+="uaccess"
+# clicking with a mouse can put the on-screen keyboard away. Not a device that
+# is a keyboard (or has keys) too - a keyboard with a touchpad built in, a mouse
+# with macro keys: its keystrokes (passwords) must stay private.
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_MOUSE}=="1", ENV{ID_INPUT_TOUCHSCREEN}!="1", ENV{ID_INPUT_TABLET}!="1", ENV{ID_INPUT_KEYBOARD}!="1", ENV{ID_INPUT_KEY}!="1", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_TOUCHPAD}=="1", ENV{ID_INPUT_KEYBOARD}!="1", ENV{ID_INPUT_KEY}!="1", TAG+="uaccess"

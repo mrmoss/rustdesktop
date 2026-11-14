@@ -1,6 +1,8 @@
 #!/bin/sh
 # RustTV's update helper: runs as root through pkexec, for the person at the
-# TV. It only updates what's installed, from the sources already set up.
+# TV. It only updates what's installed, from the sources already set up -
+# and never removes anything (no dist-upgrade, no autoremove: allowed without
+# a password, it mustn't be able to take packages away).
 #   rusttv-update refresh   # fetch the package lists (apt-get update)
 #   rusttv-update upgrade   # install the updates: apt, snaps, system Flatpaks
 set -eu
@@ -17,8 +19,7 @@ case "${1:-}" in
       apt-get update -q >>"$LOG" 2>&1 || true
       # (keeps your changed settings files; new ones only where untouched)
       apt-get -y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
-        dist-upgrade >>"$LOG" 2>&1 || { echo "the system update failed (see $LOG)" >&2; exit 1; }
-      apt-get -y -q autoremove >>"$LOG" 2>&1 || true
+        upgrade --with-new-pkgs >>"$LOG" 2>&1 || { echo "the system update failed (see $LOG)" >&2; exit 1; }
     fi
     if command -v snap >/dev/null; then
       snap refresh >>"$LOG" 2>&1 || echo "(snap refresh had trouble, see $LOG)" >&2

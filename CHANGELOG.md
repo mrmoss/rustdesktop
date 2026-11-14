@@ -2,6 +2,77 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.9.19
+
+- RustTV, Trust certificate: the page could still overlap and cut text off
+  (wrapped text in a scrolling list can be measured wrong). Nothing on it
+  wraps now: two short lines, the key's three lines in a box of their own,
+  a one-line caption, Trust it / Cancel. The openssl command to see your
+  server's key moved to docs/RUSTTV.md.
+
+## 0.9.18
+
+RustTV:
+
+- Trust certificate: the key's fingerprint was squeezed into the question
+  at the top, running off the screen. It has a page of its own now: what it
+  means, the fingerprint big, in groups of four on three lines, the command
+  to see your server's, then Trust it / Cancel (Cancel first). It scrolls
+  on a small screen. Page titles go on to more lines rather than off the
+  screen, everywhere.
+- Move left / Move right are gone from a launcher's Edit page; they stay
+  on the card's hold-OK menu (with Open, Close, Edit...).
+- A local Plex got no icon: its page only has a small one, and plex.tv
+  gave none. Plex, Jellyfin, Emby, Immich, Nextcloud, Audiobookshelf and
+  Navidrome now fall back to Dashboard Icons' 512 px pictures (jsDelivr) -
+  a Plex launcher is known by its port (32400) too.
+
+## 0.9.17
+
+Security fixes, from a review of 0.9.16.
+
+RustTV:
+
+- **AirPlay could be joined without the code**: without UxPlay's register
+  (`-reg`), a device only had to say it had paired before. Now the register
+  is used again - created before UxPlay starts (it was missing, which is
+  likely why UxPlay turned paired devices away before; the log says if it
+  still doesn't keep one). **Each try gets a new code** (UxPlay picks it;
+  the 9,000 codes can't all be tried against one), and the code no longer
+  goes in the log. **AirPlay is off to start with** (a network service;
+  saved settings keep what they had). **UxPlay runs in a sandbox**
+  (bubblewrap): it sees the system's programs, the TV's picture and sound,
+  and of your home folder only `~/.config/rusttv/airplay` (its key, ID and
+  register move there). Without bubblewrap, or where it doesn't work,
+  UxPlay runs as before and Settings > AirPlay says so.
+- **Turning Autologin on takes an administrator's password** (typed on
+  RustTV's keyboard, given to sudo): it took away the login password with no
+  password at all, for any program in the session. Turning it off still
+  needs none. (Its polkit rule only allows "disable" now.)
+- **Trust certificate pins the key you saw**: turning it on shows the
+  server's key fingerprint, and only that key is trusted - not whatever the
+  server shows each time it opens (someone in between would have been
+  trusted too). A changed certificate gets the browser's warning, and RustTV
+  says so. Launchers trusted before need it turned on again.
+- **Updates never remove anything**: `apt-get upgrade --with-new-pkgs`
+  instead of `dist-upgrade`, and no `autoremove` (still no password).
+- Launcher addresses must be `http://` or `https://` (anything else could
+  reach the browser as a switch).
+- Downloaded icons are only opened if they're PNG, JPEG, ICO or SVG -
+  checked by their first bytes before any decoder sees them.
+- Remote buttons from the settings file must be RustTV's own jobs.
+- Docs: a Security section - run RustTV in an account of its own (no lock
+  screen; the remote opens any app).
+
+RustTouch:
+
+- The mouse/touchpad rule (for clicks putting the keyboard away) no longer
+  covers devices that are keyboards too (a keyboard with a touchpad, a mouse
+  with macro keys): their keystrokes stay private.
+- `./deps.sh` no longer installs RustTV's extras (UxPlay, Avahi, Chromium)
+  for everyone: `./deps.sh --tv` (`just deps-tv`). The `.deb` only suggests
+  them.
+
 ## 0.9.16
 
 RustTV:

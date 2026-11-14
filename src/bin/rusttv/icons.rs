@@ -35,10 +35,23 @@ const KNOWN: &[(&str, &str)] = &[
         "home assistant",
         "https://raw.githubusercontent.com/home-assistant/frontend/dev/public/static/icons/favicon-512x512.png",
     ),
+    // (Dashboard Icons, 512 px - for servers whose own page has none big
+    // enough: a Plex server's has only a small favicon)
+    ("plex", "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/plex.png"),
+    ("jellyfin", "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/jellyfin.png"),
+    ("emby", "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/emby.png"),
+    ("immich", "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/immich.png"),
+    ("nextcloud", "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/nextcloud.png"),
+    ("audiobookshelf", "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/audiobookshelf.png"),
+    ("navidrome", "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/navidrome.png"),
 ];
 
 fn known(l: &Launcher) -> Option<&'static str> {
     let name = l.name.to_ascii_lowercase();
+    // (Plex's own server port, 32400, whatever the launcher's called)
+    if l.url.contains(":32400") && !KNOWN.iter().any(|k| name.contains(k.0)) {
+        return KNOWN.iter().find(|k| k.0 == "plex").map(|k| k.1);
+    }
     KNOWN.iter().find(|k| name.contains(k.0)).map(|k| k.1)
 }
 
@@ -384,18 +397,50 @@ fn manifest_icons(text: &str, base: &str) -> Vec<(String, i32)> {
 }
 
 /// Download one picture and keep it if it's big enough.
+/// The picture formats a downloaded icon may be (by its first bytes):
+/// gdk-pixbuf's names for them. Others (old formats whose decoders have
+/// had security bugs) aren't opened at all.
+fn sniff(path: &Path) -> Option<&'static str> {
+    use std::io::Read;
+    let mut head = [0u8; 512];
+    let n = std::fs::File::open(path).ok()?.read(&mut head).ok()?;
+    let h = &head[..n];
+    if h.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("png")
+    } else if h.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("jpeg")
+    } else if h.starts_with(&[0, 0, 1, 0]) {
+        Some("ico")
+    } else {
+        let text = String::from_utf8_lossy(h).to_ascii_lowercase();
+        let t = text.trim_start_matches('\u{feff}').trim_start();
+        ((t.starts_with("<?xml") || t.starts_with("<svg") || t.starts_with("<!--"))
+            && text.contains("<svg"))
+        .then_some("svg")
+    }
+}
+
 fn try_picture(url: &str, tmp: &Path, keep: &Path) -> bool {
     if download(url, tmp, "4M").is_none() {
+        return false;
+    }
+    // only PNG, JPEG, ICO and SVG - checked before any decoder sees it, and
+    // gdk-pixbuf has to agree on which
+    let Some(kind) = sniff(tmp) else {
+        return false;
+    };
+    let Some((fmt, w, h)) = Pixbuf::file_info(tmp) else {
+        return false;
+    };
+    if fmt.name().as_deref() != Some(kind) {
         return false;
     }
     let Ok(pb) = Pixbuf::from_file_at_scale(tmp, KEEP_SIZE, KEEP_SIZE, true) else {
         return false;
     };
     // (a drawing (svg) comes out at the size asked for: always big enough)
-    let real = Pixbuf::file_info(tmp)
-        .map(|(_, w, h)| w.min(h))
-        .unwrap_or(0);
-    let is_svg = url.to_ascii_lowercase().contains(".svg");
+    let real = w.min(h);
+    let is_svg = kind == "svg";
     if !is_svg && real < MIN_SIZE {
         return false;
     }

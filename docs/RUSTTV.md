@@ -16,15 +16,17 @@ More in [Pictures](#pictures).
 The `rustdesktop` `.deb` from the Releases page has RustTV in it
 (`sudo apt install ./rustdesktop_<version>_amd64.deb`; see the
 [README](../README.md#install)). The `.tar.gz` there has it already built:
-run `./deps.sh` and `./install-rusttv.sh` in it. Or from the project folder,
-built from source:
+run `./deps.sh --tv` and `./install-rusttv.sh` in it. Or from the project
+folder, built from source:
 
 ```sh
-./deps.sh                # sway, Chromium, UxPlay, NetworkManager, BlueZ... (asks for your password)
+./deps.sh --tv           # sway, NetworkManager, BlueZ... and RustTV's: Chromium, UxPlay (asks for your password)
 ./install-rusttv.sh      # builds and installs RustTV (asks for sudo)
 ```
 
-Or with `just`: `just deps` and `just install-tv`. Then pick **RustTV** on
+Or with `just`: `just deps-tv` and `just install-tv`. (The `.deb` only
+suggests RustTV's extras - Chromium, UxPlay: `./deps.sh --tv`, or install
+them yourself.) Then pick **RustTV** on
 the login screen (or turn on **Settings → Autologin** in RustTV). To remove it
 again: `./uninstall-rusttv.sh` (your settings stay in `~/.config/rusttv`).
 
@@ -76,10 +78,13 @@ pick **Screen Mirroring**, then the TV's name (**RustTV** to start with). On a
 Mac: Control Center, Screen Mirroring. A video or music app's AirPlay button
 sends just what it's playing.
 
+AirPlay is off to start with (it's a network service): turn it on in
+**Settings → AirPlay**.
+
 The first time a device connects, the TV shows a 4-digit code over
-whatever is on screen; type it on the device. Back (or any button) puts
-the code away - do that if you cancel on the device; it goes by itself
-when mirroring starts, or after a minute. (Settings → AirPlay shows the code for new devices too.) The mirrored screen fills
+whatever is on screen; type it on the device. Each try gets a new code.
+Back (or any button) puts the code away - do that if you cancel on the
+device; it goes by itself when mirroring starts, or after a minute. The mirrored screen fills
 the TV and shows in **Open now** as **AirPlay** while it lasts: Home goes
 back to RustTV and leaves it running, OK on its card goes back to it, and
 holding OK and picking **Close** stops it. When the device stops mirroring,
@@ -87,7 +92,7 @@ the TV goes back home.
 
 **Settings → AirPlay**:
 
-* **AirPlay** – on (to start with) or off: off, the TV doesn't show up.
+* **AirPlay** – on or off (off to start with): off, the TV doesn't show up.
 * **Name** – what the TV is called in Screen Mirroring (e.g. "Living Room").
 * **Ask for a code** – *First time only* (each device once, then it's
   remembered), *Every time*, or *Never* (anyone on your network can show
@@ -100,18 +105,27 @@ the TV goes back home.
   unpairing one gives the TV a new identity: your other devices type a
   code once too, and are back on the list after.)
 
-Each pairing gets its own code: RustTV picks a new one each time it starts
-UxPlay - and it starts UxPlay again, fresh, whenever mirroring ends (one
-that's had a device sometimes gives the next one no picture; a fresh one
-always does). That takes a second: connecting again straight away may need
-a second try.
+Each try gets its own code: UxPlay picks a new one each time a device
+asks (so the codes can't all be tried one after another), and the TV
+shows it. The code never goes in the log. RustTV starts UxPlay again, fresh,
+whenever mirroring ends (one that's had a device sometimes gives the next
+one no picture; a fresh one always does). That takes a second: connecting
+again straight away may need a second try.
 
-A device that typed the code remembers the TV by its AirPlay device ID
-and key (`~/.config/rusttv/airplay.id`, `airplay.pem`) and doesn't ask
-again while they're the same. So unpairing gives the TV a new ID and key -
-it's a new TV to every device - and **Every time** uses new ones for each
-mirroring. The list is RustTV's own (`~/.config/rusttv/airplay.devices`),
-from the devices that connect.
+Only devices that typed the code are let back in without one: UxPlay keeps
+them in its register (`~/.config/rusttv/airplay/register`). A device
+also remembers the TV by its AirPlay device ID and key (in the same folder)
+and doesn't ask again while they're the same. So unpairing gives the TV a
+new ID and key - it's a new TV to every device - and **Every time** uses new
+ones for each mirroring (and an empty register). The Devices list is
+RustTV's own (`~/.config/rusttv/airplay.devices`), from the devices that
+connect.
+
+UxPlay runs in a sandbox (bubblewrap, `sudo apt install bubblewrap`): it
+sees the system's programs, the TV's picture and sound, and of your home
+folder only `~/.config/rusttv/airplay`. If bubblewrap isn't installed or
+doesn't work there, RustTV runs UxPlay without it and Settings → AirPlay
+says so.
 
 If two TVs on your network have the same AirPlay name, UxPlay's log says
 `dnssd_register_airplay failed with error code -65548` (a name clash):
@@ -125,8 +139,8 @@ and why (`grep -E "uxplay|airplay" /run/user/$(id -u)/rusttv/sway.log`).
 
 It needs UxPlay, the AirPlay receiver for Linux, and GStreamer's plugins
 for the video and sound (Ubuntu's uxplay doesn't bring them):
-`sudo apt install uxplay gstreamer1.0-plugins-bad gstreamer1.0-plugins-good gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-x`
-(`./deps.sh` and the `.deb` install them all). Settings → AirPlay says what's
+`sudo apt install bubblewrap uxplay gstreamer1.0-plugins-bad gstreamer1.0-plugins-good gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-x`
+(`./deps.sh --tv` installs them all). Settings → AirPlay says what's
 missing. After installing, turn AirPlay off and on again to start it
 straight away. It uses Avahi to show up on the
 network (Ubuntu runs `avahi-daemon` already); a firewall, if you've turned
@@ -207,8 +221,20 @@ A server at home with a home-made certificate (Frigate on `https://`, a
 camera, a router on an IP address) gets Chromium's "Your connection is not
 private" page; Chromium forgets "Proceed" each time it restarts. **Edit →
 Trust certificate** makes the launcher's Chromium trust that server's
-certificate - just that one (by its key's fingerprint, read when the
-launcher opens; needs `openssl`, which Ubuntu has). Firefox and Waterfox
+certificate - just that one: turning it on reads the key the server shows
+and shows you its fingerprint (check it's your server's), and only that
+key is trusted from then on (needs `openssl`, which Ubuntu has). If the
+server shows a different one later, Chromium warns as usual and RustTV
+says the certificate changed: turn Trust certificate off and on again if
+you changed it yourself. To see your server's key fingerprint, to compare
+(on the server, with its certificate file):
+
+```sh
+openssl x509 -in cert.pem -pubkey -noout | openssl pkey -pubin -outform der \
+  | openssl dgst -sha256 -binary | openssl base64
+```
+
+A launcher's address has to be `http://` or `https://`. Firefox and Waterfox
 remember "Accept the risk and continue" by themselves.
 
 ### TV layouts
@@ -233,7 +259,8 @@ browser, those services stream at up to 720p-1080p.
 
 ## Settings
 
-* **Launchers**, **Apps** – add, edit, reorder, remove (or hold OK on a
+* **Launchers**, **Apps** – add, edit, remove (to move one, hold OK on its
+  card: Move left / Move right; or hold OK on a
   card on the home screen).
 * **Max open apps**, **Remote buttons** – see above.
 * **Default browser** – for new launchers: Chromium (to start with),
@@ -249,10 +276,11 @@ browser, those services stream at up to 720p-1080p.
 * **Autologin** – the TV starts straight into RustTV with no
   password, like a TV. Works with GDM (Ubuntu), LightDM and SDDM. A small
   helper (`/usr/local/libexec/rusttv-autologin`) changes the login screen's
-  settings; a polkit rule lets the person at the TV do that for their own
-  account only, without a password (there is no password prompt to type
-  into with a remote). Anyone who turns the TV on then gets your account, so use
-  an account meant for the TV.
+  settings, for your own account only. Turning it **on** takes away the
+  login password, so it asks for an administrator's password (typed on
+  RustTV's keyboard, given to sudo). Turning it **off** needs none (a polkit
+  rule for the person at the TV). Anyone who turns the TV on then gets your
+  account - see [Security](#security).
 * **Accent color**, **Background** – the focus outline and highlights;
   dark, black, an accent glow, or a picture (from `~/Pictures` or the
   system's wallpapers, dimmed).
@@ -262,9 +290,10 @@ browser, those services stream at up to 720p-1080p.
   (a video playing keeps it awake: browsers ask the screen to stay on).
   Needs swayidle (`sudo apt install swayidle`).
 * **Updates** – checks the system (apt), snaps and Flatpaks, and installs
-  them all (apt `dist-upgrade`, `snap refresh`, `flatpak update`). Like
-  Autologin, a helper (`/usr/local/libexec/rusttv-update`) does it with a
-  polkit rule for the person at the TV: it only updates what's installed.
+  them all (apt `upgrade --with-new-pkgs`, `snap refresh`, `flatpak
+  update`). A helper (`/usr/local/libexec/rusttv-update`) does it with a
+  polkit rule for the person at the TV, without a password: it only updates
+  what's installed, and never removes anything.
   Its log: `/var/log/rusttv-update.log`.
 * **Power button** – what the remote's power button does: *Suspend* (to
   start with), *Show the power menu*, *Shut down*, or *Nothing*. (RustTV
@@ -297,7 +326,7 @@ folder to the other box, leaving out the AirPlay identity (each TV should
 have its own), then log out and back in there:
 
 ```sh
-rsync -av --exclude 'airplay.*' ~/.config/rusttv/ OTHER-BOX:.config/rusttv/
+rsync -av --exclude 'airplay*' ~/.config/rusttv/ OTHER-BOX:.config/rusttv/
 ```
 
 It works between different machines: screens the other box doesn't have
@@ -308,6 +337,29 @@ background colour. Copy the picture too if you use one. Not copied:
 **Autologin** (a system setting - turn it on there), sign-ins inside the
 launchers (`~/.local/share/rusttv/profiles/`: copying that folder too
 may carry them over, but sites often ask again on a new machine).
+
+## Security
+
+RustTV is made for the person holding the remote: it has no lock screen,
+and its Apps row can open any installed app (a terminal too). So whoever
+has the remote has the account RustTV runs in. Run RustTV in an account
+of its own, meant for the TV - not an administrator (not in the `sudo`
+group), with nothing private in it - above all with Autologin on.
+
+What it does to keep the rest safe:
+
+* **AirPlay** is off to start with; on, a device types a code (a new one
+  each try) and only devices that did are let back in; UxPlay runs in a
+  sandbox that can't see your home folder.
+* **Autologin** takes an administrator's password to turn on.
+* **Updates** need no password, but only update what's installed and never
+  remove anything.
+* **Trust certificate** trusts the one key you saw, not whatever the server
+  shows later.
+* Launcher addresses are `http://` or `https://` only; downloaded icons
+  are only opened if they're PNG, JPEG, ICO or SVG (checked before any
+  decoder sees them). Icons from a server on your own network are fetched
+  even with a home-made certificate (they're only pictures).
 
 ## Pictures
 
@@ -322,6 +374,8 @@ may carry them over, but sites often ask again on a new machine).
 | ![The AirPlay code](screenshots/rusttv/airplay-code.png) | ![Add a launcher](screenshots/rusttv/add-launcher.png) |
 | **Search** (the keyboard, and what matches) | **AirPlay devices** |
 | ![Search](screenshots/rusttv/search.png) | ![AirPlay devices](screenshots/rusttv/airplay-devices.png) |
+| **Trust certificate** (the key to check) | |
+| ![Trust certificate](screenshots/rusttv/trust-cert.png) | |
 
 These are mock-ups drawn from RustTV's own style sheet and layout (the same
 colours, sizes and text), with the launchers' plain colour cards rather than

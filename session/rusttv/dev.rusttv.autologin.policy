@@ -3,17 +3,20 @@
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <policyconfig>
   <vendor>RustTV</vendor>
-  <action id="dev.rusttv.autologin">
-    <description>Turn logging in by itself into RustTV on or off for your own account</description>
-    <message>RustTV wants to change whether this computer logs you in by itself</message>
-    <!-- The person sitting at the TV (the active local session) may do this
-         for their own account without a password: RustTV has no password
-         prompt for a remote. The helper refuses anything else. -->
+  <action id="dev.rusttv.autologin.disable">
+    <description>Turn off logging in by itself into RustTV, for your own account</description>
+    <message>RustTV wants to turn off logging you in by itself</message>
+    <!-- Only turning it OFF, which only makes things stricter: the person at
+         the TV (the active local session) may, without a password. Turning
+         it ON takes an administrator's password (RustTV runs the helper
+         through sudo for that), and the helper refuses "enable" through
+         pkexec. -->
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
       <allow_active>yes</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/rusttv-autologin</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">disable</annotate>
   </action>
 </policyconfig>

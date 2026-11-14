@@ -22,6 +22,10 @@ default:
 deps:
     ./deps.sh
 
+# The same, plus RustTV's extras (Chromium for launchers, UxPlay for AirPlay)
+deps-tv:
+    ./deps.sh --tv
+
 # Build RustTouch, its settings app and RustTV
 build:
     #!/bin/sh
@@ -184,8 +188,8 @@ deb: _dist-build
     Conflicts: rusttouch
     Replaces: rusttouch
     Provides: rusttouch
-    Recommends: sway, pkexec, uxplay, avahi-daemon, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-good, gstreamer1.0-libav, gstreamer1.0-gl, gstreamer1.0-x, grim, swayidle, wlr-randr, wl-mirror, iio-sensor-proxy, network-manager, bluez, wireplumber, pulseaudio-utils, sound-theme-freedesktop, wtype, xdg-desktop-portal-gtk, xdg-desktop-portal-wlr
-    Suggests: foot, xdotool, chromium | firefox, openssl
+    Recommends: sway, pkexec, grim, swayidle, wlr-randr, wl-mirror, iio-sensor-proxy, network-manager, bluez, wireplumber, pulseaudio-utils, sound-theme-freedesktop, wtype, xdg-desktop-portal-gtk, xdg-desktop-portal-wlr
+    Suggests: foot, xdotool, chromium | firefox, openssl, bubblewrap, uxplay, avahi-daemon, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-good, gstreamer1.0-libav, gstreamer1.0-gl, gstreamer1.0-x
     Homepage: {{homepage}}
     Description: Two simple desktops: RustTouch for tablets, RustTV for a TV
      RustTouch is a small, Android-style touch desktop: swipe up for your apps,

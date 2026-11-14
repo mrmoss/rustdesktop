@@ -244,6 +244,14 @@ pub fn cert_fingerprint(url: &str) -> Option<String> {
     (fp.len() == 44 && fp != "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=").then_some(fp)
 }
 
+/// An http:// or https:// address (and nothing that looks like a switch).
+pub fn web_url(url: &str) -> bool {
+    let u = url.trim();
+    (u.starts_with("https://") || u.starts_with("http://"))
+        && u.len() > 8
+        && !u.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
 /// The command that opens a launcher (None: its browser isn't installed).
 ///
 /// `shared`: open it with your browser's own profile (your history and
@@ -252,6 +260,12 @@ pub fn cert_fingerprint(url: &str) -> Option<String> {
 /// such a launcher always gets one.
 pub fn launcher_command(l: &Launcher, shared: bool) -> Option<Vec<String>> {
     let l = &effective(l);
+    // (only web addresses: anything else could reach the browser as a
+    // switch of its own)
+    if !web_url(&l.url) {
+        eprintln!("rusttv: {}: not a web address, not opened", l.name);
+        return None;
+    }
     let how = install(&l.browser)?;
     // arrow keys jump between the page's buttons (Chromium only)
     let spatial = l.spatial && is_chromium(&l.browser);
@@ -262,9 +276,10 @@ pub fn launcher_command(l: &Launcher, shared: bool) -> Option<Vec<String>> {
     // the site's own certificate, trusted (Chromium: by its key's
     // fingerprint - that switch only works with a profile folder named, so
     // your usual one is named when sharing it)
-    let trust = (l.trust_cert && is_chromium(&l.browser))
-        .then(|| cert_fingerprint(&l.url))
-        .flatten();
+    // (the key saved when Trust certificate was turned on - never the one the
+    // server shows now: someone in between would be trusted too)
+    let trust = (l.trust_cert && is_chromium(&l.browser) && !l.cert_pin.is_empty())
+        .then(|| l.cert_pin.clone());
     if uses_own_profile(l, shared) {
         // (if the browser is open already, this opens a new window in it)
         match l.browser.as_str() {
@@ -633,7 +648,31 @@ pub fn open_launcher(l: &Launcher, shared: bool) -> bool {
         o.push(l.clone());
     });
     WAITING.with(|x| *x.borrow_mut() = Some(l.id.clone()));
+    check_pin(&real);
     open(&cmd)
+}
+
+/// A trusted certificate: is it still the one the server shows? If not,
+/// say so (the browser warns too - the new one isn't trusted).
+fn check_pin(l: &Launcher) {
+    if !l.trust_cert || l.cert_pin.is_empty() {
+        return;
+    }
+    let (url, pin, name) = (l.url.clone(), l.cert_pin.clone(), l.name.clone());
+    std::thread::spawn(move || {
+        if let Some(now) = cert_fingerprint(&url) {
+            if now != pin {
+                eprintln!("rusttv: {name}: the certificate changed ({pin} -> {now})");
+                crate::on_main(move || {
+                    crate::with_tv(|t| {
+                        t.toast(&format!(
+                            "{name}'s certificate changed - if you changed it, Edit > Trust certificate again"
+                        ))
+                    })
+                });
+            }
+        }
+    });
 }
 
 /// Close `wins`, then (once they're gone - or after 8 seconds) run `then`.

@@ -212,3 +212,14 @@ window.app-kbd { background: transparent; }
 .airplay-title { font-size: 26px; font-weight: 600; opacity: 0.7; }
 .airplay-code { font-size: 120px; font-weight: 700; letter-spacing: 12px; }
 .airplay-note { font-size: 24px; opacity: 0.8; }
+
+/* Trust certificate: the key to check against the server's */
+.trust-text { font-size: 24px; opacity: 0.85; margin: 0 18px 8px 18px; }
+.fingerprint-card {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+  padding: 22px 32px;
+  margin: 8px 18px 4px 18px;
+}
+.fingerprint { font-family: monospace; font-size: 34px; font-weight: 600; }
+.trust-caption { font-size: 18px; opacity: 0.6; margin: 0 18px 16px 18px; }

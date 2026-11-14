@@ -39,6 +39,6 @@ for p in sway chromium wpctl pkexec swayidle nmcli bluetoothctl wl-mirror uxplay
 done
 if [ -n "$missing" ]; then
   echo "Note: not installed:$missing"
-  echo "      sudo apt install sway wireplumber pkexec swayidle chromium network-manager bluez wl-mirror uxplay gstreamer1.0-plugins-bad gstreamer1.0-plugins-good gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-x"
+  echo "      sudo apt install sway wireplumber pkexec swayidle chromium network-manager bluez wl-mirror bubblewrap uxplay gstreamer1.0-plugins-bad gstreamer1.0-plugins-good gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-x"
 fi
 echo "Installed. Pick 'RustTV' on the login screen (or turn on Settings > Log in by itself in RustTV)."

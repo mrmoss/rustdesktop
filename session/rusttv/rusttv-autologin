@@ -1,13 +1,16 @@
 #!/bin/sh
-# RustTV's auto-login helper: runs as root through pkexec, for the person at
-# the TV. It only ever turns logging in by itself on or off *for that
-# person's own account*, into the RustTV session.
+# RustTV's auto-login helper: runs as root, for the person at the TV. It only
+# ever turns logging in by itself on or off *for that person's own account*,
+# into the RustTV session.
 #   rusttv-autologin enable | disable
+# "disable" comes through pkexec (allowed for the person at the TV: it only
+# makes things stricter). "enable" takes the login password away, so it comes
+# through sudo, with an administrator's password.
 set -eu
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
-uid="${PKEXEC_UID:-}"
-[ -n "$uid" ] || { echo "run this through pkexec" >&2; exit 1; }
+uid="${PKEXEC_UID:-${SUDO_UID:-}}"
+[ -n "$uid" ] || { echo "run this through pkexec or sudo" >&2; exit 1; }
 user=$(getent passwd "$uid" | cut -d: -f1)
 [ -n "$user" ] || { echo "no user $uid" >&2; exit 1; }
 case "$user" in
@@ -16,6 +19,10 @@ esac
 [ "$uid" -ge 1000 ] || { echo "not for system accounts" >&2; exit 1; }
 what="${1:-}"
 case "$what" in enable|disable) ;; *) echo "usage: rusttv-autologin enable|disable" >&2; exit 2 ;; esac
+# (through pkexec - no password - it may only turn it off)
+if [ "$what" = enable ] && [ -z "${SUDO_UID:-}" ]; then
+  echo "turning autologin on needs an administrator's password (sudo)" >&2; exit 1
+fi
 
 # set key=value in [section] of an ini file (adds the section/key if missing)
 ini_set() { # file section key value

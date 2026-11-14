@@ -49,6 +49,10 @@ pub fn page(title: &str, body: &impl IsA<gtk::Widget>) -> gtk::Box {
     let t = gtk::Label::new(Some(title));
     t.add_css_class("page-title");
     t.set_halign(gtk::Align::Start);
+    // (a long one goes on to more lines, rather than off the screen)
+    t.set_wrap(true);
+    t.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    t.set_xalign(0.0);
     root.append(&t);
     let sc = gtk::ScrolledWindow::new();
     sc.set_hscrollbar_policy(gtk::PolicyType::Never);

@@ -626,14 +626,14 @@ fn toggle_autologin(tv: &Tv) {
         }
         _ => true,
     };
-    let go = move |t: &Tv| {
+    let go = move |t: &Tv, pw: Option<String>| {
         t.toast(if on {
             "Turning on autologin..."
         } else {
             "Turning off autologin..."
         });
         std::thread::spawn(move || {
-            let r = autologin::set(on);
+            let r = autologin::set(on, pw);
             crate::on_main(move || {
                 crate::with_tv(|t| {
                     match r {
@@ -650,9 +650,19 @@ fn toggle_autologin(tv: &Tv) {
         });
     };
     if on {
-        ui::confirm(tv, "Turn on autologin?", "Turn on", go);
+        // (no password at the login screen any more: an administrator's
+        // password to turn that on)
+        keyboard::ask_secret(
+            tv,
+            "Your password, to turn on autologin (no password at the login screen after that)",
+            move |t, pw| {
+                if !pw.is_empty() {
+                    go(t, Some(pw));
+                }
+            },
+        );
     } else {
-        go(tv);
+        go(tv, None);
     }
 }
 
@@ -684,10 +694,74 @@ fn update(tv: &Tv, id: &str, f: impl FnOnce(&mut Launcher)) {
 
 /// A web address as typed: "frigate.local:8971" -> "https://frigate.local:8971"
 /// (type http:// yourself for a server without https).
+/// "Trust this certificate?": the key's fingerprint big enough to read and
+/// check (in groups of 4, on a few lines), how to find your server's, and
+/// Trust it / Cancel. A page of its own, scrolling on a small screen.
+fn trust_page(tv: &Tv, name: &str, fp: &str, yes: impl Fn(&Tv, &str) + 'static) {
+    let body = ui::list();
+    // (nothing here wraps: short lines with their own breaks - a wrapped
+    // label in a scrolling list can be measured wrong, and overlap)
+    let intro = gtk::Label::new(Some(&format!(
+        "Check this is {name}'s certificate key.\n\
+         Only this key will be trusted: if it changes, you'll be warned."
+    )));
+    intro.add_css_class("trust-text");
+    intro.set_halign(gtk::Align::Start);
+    intro.set_xalign(0.0);
+    body.append(&intro);
+    // the key: 44 characters, in groups of 4 - 4 groups a line, a label each
+    let groups: Vec<String> = fp
+        .chars()
+        .collect::<Vec<_>>()
+        .chunks(4)
+        .map(|c| c.iter().collect())
+        .collect();
+    let card = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    card.add_css_class("fingerprint-card");
+    card.set_halign(gtk::Align::Start);
+    for line in groups.chunks(4) {
+        let l = gtk::Label::new(Some(&line.join(" ")));
+        l.add_css_class("fingerprint");
+        l.set_halign(gtk::Align::Start);
+        l.set_xalign(0.0);
+        card.append(&l);
+    }
+    body.append(&card);
+    let what = gtk::Label::new(Some("SHA-256 of the server's public key (base64)"));
+    what.add_css_class("trust-caption");
+    what.set_halign(gtk::Align::Start);
+    what.set_xalign(0.0);
+    body.append(&what);
+    let (t, fp2) = (tv.clone(), fp.to_string());
+    let yes = Rc::new(yes);
+    let (ok, _) = ui::row("Trust it", "", move || {
+        t.back();
+        yes(&t, &fp2);
+    });
+    body.append(&ok);
+    let t = tv.clone();
+    let (no, _) = ui::row("Cancel", "", move || {
+        t.back();
+    });
+    body.append(&no);
+    let pg = ui::page(&format!("Trust {name}'s certificate?"), &body);
+    tv.push(&pg, None);
+    // (Cancel has the focus to start with: trusting is a choice)
+    let _ = no.grab_focus();
+}
+
+/// What was typed, as a web address: "https://" in front when it has
+/// none. Only http:// and https:// (anything else could reach the browser
+/// as a switch of its own) - something else typed is kept as typed, and
+/// the launcher won't open.
 fn fix_url(s: &str) -> String {
-    let s = s.trim();
-    if s.is_empty() || s.contains("://") {
-        s.to_string()
+    let s: String = s.trim().chars().filter(|c| !c.is_whitespace()).collect();
+    let low = s.to_ascii_lowercase();
+    if s.is_empty() || low.starts_with("https://") || low.starts_with("http://") {
+        s
+    } else if s.contains("://") || s.starts_with('-') {
+        // (another kind of address, or a switch: refused at opening)
+        s
     } else {
         format!("https://{s}")
     }
@@ -944,33 +1018,48 @@ pub fn edit_launcher(tv: &Tv, id: &str) {
     body.append(&spatial);
     let (t, i) = (tv.clone(), id.clone());
     let (trust, trust_v) = ui::row("Trust certificate", on_off(l.trust_cert), move || {
-        update(&t, &i, |l| l.trust_cert = !l.trust_cert);
         let Some(l) = launcher(&t, &i) else { return };
-        if !l.trust_cert {
+        // off: forget the key
+        if l.trust_cert {
+            update(&t, &i, |l| {
+                l.trust_cert = false;
+                l.cert_pin.clear();
+            });
             return;
         }
         if !l.url.starts_with("https://") {
             t.toast("Only for https:// addresses");
-        } else if !launch::is_chromium(&launch::effective(&l).browser) {
-            t.toast("Firefox and Waterfox remember \"Accept the risk\" by themselves");
-        } else if launch::cert_fingerprint(&l.url).is_none() {
-            t.toast(&format!(
-                "Couldn't reach {} to read its certificate",
-                l.name
-            ));
+            return;
         }
+        if !launch::is_chromium(&launch::effective(&l).browser) {
+            t.toast("Firefox and Waterfox remember \"Accept the risk\" by themselves");
+            return;
+        }
+        // on: read the key the server shows, show it, and trust that one
+        // (only) once you've said yes
+        t.toast(&format!("Reading {}'s certificate...", l.name));
+        let (url, name, i2) = (l.url.clone(), l.name.clone(), i.clone());
+        std::thread::spawn(move || {
+            let fp = launch::cert_fingerprint(&url);
+            crate::on_main(move || {
+                crate::with_tv(|t| {
+                    let Some(fp) = fp else {
+                        t.toast(&format!("Couldn't reach {name} to read its certificate"));
+                        return;
+                    };
+                    let i3 = i2.clone();
+                    trust_page(t, &name, &fp, move |t, fp| {
+                        update(t, &i3, |l| {
+                            l.trust_cert = true;
+                            l.cert_pin = fp.to_string();
+                        });
+                    });
+                });
+            });
+        });
     });
     body.append(&trust);
-    let (t, i) = (tv.clone(), id.clone());
-    let (left, _) = ui::row("Move left", "", move || {
-        crate::home::move_launcher(&t, &i, -1)
-    });
-    body.append(&left);
-    let (t, i) = (tv.clone(), id.clone());
-    let (right, _) = ui::row("Move right", "", move || {
-        crate::home::move_launcher(&t, &i, 1)
-    });
-    body.append(&right);
+    // (moving it: hold OK on its card - not here)
     let (t, i) = (tv.clone(), id.clone());
     let (rb, _) = ui::row("Remote buttons", "", move || app_remote_page(&t, &i));
     body.append(&rb);

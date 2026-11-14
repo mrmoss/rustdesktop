@@ -102,13 +102,6 @@ pub fn state() -> State {
     State::Unsupported
 }
 
-/// Turn it on or off (asks the helper; blocking - run it off the main
-/// thread). Err: why it didn't work.
-///
-/// Turning it on takes away the password at the login screen, so it takes
-/// an administrator's password (`password`, typed on RustTV's keyboard and
-/// given to sudo). Turning it off only makes things stricter: no password
-/// (pkexec, allowed for the person at the TV).
 /// Overwrite a password in memory (zeros are still valid text).
 pub fn wipe(s: &mut String) {
     // SAFETY: zero bytes are valid UTF-8
@@ -116,6 +109,13 @@ pub fn wipe(s: &mut String) {
     s.clear();
 }
 
+/// Turn it on or off (asks the helper; blocking - run it off the main
+/// thread). Err: why it didn't work.
+///
+/// Turning it on takes away the password at the login screen, so it takes
+/// an administrator's password (`password`, typed on RustTV's keyboard and
+/// given to sudo). Turning it off only makes things stricter: no password
+/// (pkexec, allowed for the person at the TV).
 pub fn set(on: bool, password: Option<String>) -> Result<(), String> {
     if !std::path::Path::new(helper_path()).exists() {
         return Err("the auto-login helper isn't installed (run install-rusttv.sh)".into());

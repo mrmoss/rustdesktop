@@ -2,6 +2,11 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.9.21
+
+- RustTV: a code comment fix (autologin.rs: `set()`'s doc comment had
+  ended up on `wipe()`). No change in behaviour.
+
 ## 0.9.20
 
 Security fixes, from a second review (of 0.9.17).

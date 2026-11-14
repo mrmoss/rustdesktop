@@ -2,6 +2,28 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.9.20
+
+Security fixes, from a second review (of 0.9.17).
+
+RustTV:
+
+- **AirPlay's sandbox can't be switched off from the network**: after three
+  quick crashes RustTV ran UxPlay without it (so a device able to crash it
+  could get it unsandboxed). Now RustTV never leaves the sandbox out by
+  itself: crashing again and again stays sandboxed ("keeps stopping");
+  without bubblewrap, or where it doesn't work, AirPlay doesn't start and
+  Settings > AirPlay says why. New **Settings > AirPlay > Sandbox**: off
+  only if you choose (with a warning).
+- The sandbox no longer gets PipeWire's socket (PulseAudio's is enough for
+  the sound). Docs: what it still allows (X11, recording) - needed for the
+  picture and sound.
+- Autologin's password: `sudo -k` (nothing remembered), and wiped from
+  memory once given (and from the keyboard, also when you go Back).
+- (The .deb's polkit policies already pointed at `/usr/libexec` - its
+  packaging rewrites `/usr/local/` in every file; the build workflow checks
+  that now.)
+
 ## 0.9.19
 
 - RustTV, Trust certificate: the page could still overlap and cut text off

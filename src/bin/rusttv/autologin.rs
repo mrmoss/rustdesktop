@@ -109,19 +109,27 @@ pub fn state() -> State {
 /// an administrator's password (`password`, typed on RustTV's keyboard and
 /// given to sudo). Turning it off only makes things stricter: no password
 /// (pkexec, allowed for the person at the TV).
+/// Overwrite a password in memory (zeros are still valid text).
+pub fn wipe(s: &mut String) {
+    // SAFETY: zero bytes are valid UTF-8
+    unsafe { s.as_bytes_mut() }.fill(0);
+    s.clear();
+}
+
 pub fn set(on: bool, password: Option<String>) -> Result<(), String> {
     if !std::path::Path::new(helper_path()).exists() {
         return Err("the auto-login helper isn't installed (run install-rusttv.sh)".into());
     }
     let out = if on {
-        let Some(pw) = password else {
+        let Some(mut pw) = password else {
             return Err("it needs your password".into());
         };
         if crate::launch::find("sudo").is_none() {
             return Err("sudo isn't installed".into());
         }
+        // (-k: sudo remembers nothing - the next time asks again)
         let mut child = Command::new("sudo")
-            .args(["-S", "-p", ""])
+            .args(["-k", "-S", "-p", ""])
             .arg(helper_path())
             .arg("enable")
             .stdin(std::process::Stdio::piped())
@@ -133,6 +141,8 @@ pub fn set(on: bool, password: Option<String>) -> Result<(), String> {
             use std::io::Write;
             let _ = writeln!(i, "{pw}");
         }
+        // (the password, gone from memory)
+        wipe(&mut pw);
         let out = child
             .wait_with_output()
             .map_err(|e| format!("couldn't ask for permission: {e}"))?;

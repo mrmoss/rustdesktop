@@ -93,7 +93,7 @@ Download `rustdesktop_<version>_amd64.deb` (or `arm64` for ARM; it has RustTV in
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS   # with SHA256SUMS from the same release: must say "OK"
-sudo apt install ./rustdesktop_0.9.19_amd64.deb
+sudo apt install ./rustdesktop_0.9.20_amd64.deb
 ```
 
 Restart, and on the login screen pick **RustTouch** (click your name, then the gear or session
@@ -118,8 +118,8 @@ gh attestation verify rustdesktop-*.tar.gz --repo mrmoss/rustdesktop   # optiona
 Then:
 
 ```sh
-tar xzf rustdesktop-0.9.19-linux-x86_64.tar.gz
-cd rustdesktop-0.9.19-linux-x86_64
+tar xzf rustdesktop-0.9.20-linux-x86_64.tar.gz
+cd rustdesktop-0.9.20-linux-x86_64
 ./deps.sh               # the helpers RustTouch uses (asks for your password)
 ./install-rusttouch.sh  # copies it into /usr/local and adds it to the login screen
 ```

@@ -43,13 +43,11 @@ static MIRRORING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool:
 /// what's going on, for the settings page
 static STATUS: Mutex<Status> = Mutex::new(Status::Off);
 /// what the running one was started with (to restart only when it changed)
-static RUNNING: Mutex<Option<(String, String)>> = Mutex::new(None);
+static RUNNING: Mutex<Option<(String, String, bool)>> = Mutex::new(None);
 /// the name the running UxPlay has (its X11 window has it as its title)
 static NAME: Mutex<String> = Mutex::new(String::new());
 /// whether the running UxPlay is sandboxed (None: not running)
 static SANDBOXED: Mutex<Option<bool>> = Mutex::new(None);
-/// UxPlay's sandbox (bubblewrap) doesn't work here: run it without
-static NO_SANDBOX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// a device has just typed the code (to check UxPlay kept it)
 static JUST_PAIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -62,6 +60,10 @@ enum Status {
     Failing,
     /// GStreamer's plugins for it aren't installed
     NoPlugins,
+    /// the sandbox is on, but bubblewrap isn't installed
+    NoBwrap,
+    /// the sandbox is on, but bubblewrap doesn't work here
+    BwrapBroken,
 }
 
 /// What UxPlay needs besides itself (Ubuntu's uxplay doesn't bring them).
@@ -185,7 +187,7 @@ pub fn apply(cfg: &Config) {
         } else {
             cfg.airplay_name.trim().to_string()
         };
-        (name, cfg.airplay_code.clone())
+        (name, cfg.airplay_code.clone(), cfg.airplay_sandbox)
     });
     let mut running = RUNNING.lock().unwrap();
     if *running == want {
@@ -195,7 +197,7 @@ pub fn apply(cfg: &Config) {
     let g = GEN.fetch_add(1, Ordering::SeqCst) + 1;
     *running = want.clone();
     drop(running);
-    let Some((name, code)) = want else {
+    let Some((name, code, sandbox)) = want else {
         *STATUS.lock().unwrap() = if cfg.airplay {
             Status::Missing
         } else {
@@ -204,7 +206,7 @@ pub fn apply(cfg: &Config) {
         crate::on_main(|| hide_code_for("AirPlay is off"));
         return;
     };
-    std::thread::spawn(move || supervise(g, name, code));
+    std::thread::spawn(move || supervise(g, name, code, sandbox));
 }
 
 /// UxPlay's sandbox (bubblewrap): the system's programs and settings (read
@@ -266,10 +268,10 @@ fn sandbox_args() -> Vec<std::ffi::OsString> {
     let rt = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
     if !rt.is_empty() {
         add(&["--dir", &rt]);
-        for s in ["pulse", "pipewire-0"] {
-            let p = format!("{rt}/{s}");
-            add(&["--ro-bind-try", &p, &p]);
-        }
+        // (the sound: PulseAudio's socket only - PipeWire's own isn't
+        // needed. It can still record, like any sound client: known.)
+        let p = format!("{rt}/pulse");
+        add(&["--ro-bind-try", &p, &p]);
     }
     let home = config::home().to_string_lossy().to_string();
     let ap = airplay_dir().to_string_lossy().to_string();
@@ -313,7 +315,7 @@ pub fn clean_up() {
 }
 
 /// Run UxPlay, and again whenever it stops, until `g` isn't current.
-fn supervise(g: u64, name: String, code: String) {
+fn supervise(g: u64, name: String, code: String, sandbox: bool) {
     let current = || GEN.load(Ordering::SeqCst) == g;
     let mut quick_stops = 0u32;
     let mut renewed = false;
@@ -376,7 +378,16 @@ fn supervise(g: u64, name: String, code: String) {
             ux.push(reg.into());
         }
         args.extend(ux);
-        let sandboxed = !NO_SANDBOX.load(Ordering::SeqCst) && find("bwrap").is_some();
+        // The sandbox is never left out by itself (something on the
+        // network crashing UxPlay mustn't be able to switch it off): without
+        // bubblewrap, or where it doesn't work, AirPlay waits for you - to
+        // fix it, or to turn Sandbox off yourself.
+        let sandboxed = sandbox;
+        if sandboxed && find("bwrap").is_none() {
+            eprintln!("rusttv: airplay: bubblewrap isn't installed - not starting UxPlay without its sandbox");
+            *STATUS.lock().unwrap() = Status::NoBwrap;
+            return;
+        }
         let mut cmd = if sandboxed {
             let mut c = Command::new("bwrap");
             c.args(sandbox_args()).arg("--").args(&args);
@@ -502,14 +513,16 @@ fn supervise(g: u64, name: String, code: String) {
             }
             if let Ok(Some(st)) = child.try_wait() {
                 eprintln!("rusttv: uxplay stopped ({st})");
-                // the sandbox itself didn't work here: without it, then
+                // the sandbox itself doesn't work here: stop, and say so
                 if sandboxed
                     && started.elapsed() < Duration::from_secs(5)
                     && saw_bwrap_error.load(Ordering::SeqCst)
                 {
-                    eprintln!("rusttv: airplay: bubblewrap doesn't work here - running UxPlay without a sandbox");
-                    NO_SANDBOX.store(true, Ordering::SeqCst);
-                    renewed = true;
+                    eprintln!("rusttv: airplay: bubblewrap doesn't work here - not starting UxPlay without its sandbox");
+                    *STATUS.lock().unwrap() = Status::BwrapBroken;
+                    PID.store(0, Ordering::SeqCst);
+                    crate::on_main(|| hide_code_for("UxPlay stopped"));
+                    return;
                 }
                 break;
             }
@@ -552,16 +565,7 @@ fn supervise(g: u64, name: String, code: String) {
         } else {
             quick_stops = 0;
         }
-        // (stopping again and again in its sandbox: the sandbox may be
-        // what's wrong here - without it, then)
-        if quick_stops >= 3 && sandboxed && !NO_SANDBOX.load(Ordering::SeqCst) {
-            eprintln!(
-                "rusttv: airplay: UxPlay keeps stopping in its sandbox - running it without one"
-            );
-            NO_SANDBOX.store(true, Ordering::SeqCst);
-            quick_stops = 0;
-            continue;
-        }
+        // (stopping again and again stays sandboxed: "keeps stopping")
         if quick_stops >= 3 {
             let mut st = STATUS.lock().unwrap();
             if *st != Status::NoPlugins {
@@ -1042,11 +1046,18 @@ fn status_text(cfg: &Config) -> String {
                 shown_name(cfg)
             );
             if *SANDBOXED.lock().unwrap() == Some(false) {
-                t.push_str(" (UxPlay isn't sandboxed: install bubblewrap)");
+                t.push_str(" (not sandboxed)");
             }
             t
         }
         Status::Missing => "Needs UxPlay: sudo apt install uxplay".into(),
+        Status::NoBwrap => {
+            "Needs bubblewrap, UxPlay's sandbox: sudo apt install bubblewrap (or turn Sandbox off)"
+                .into()
+        }
+        Status::BwrapBroken => "UxPlay's sandbox (bubblewrap) doesn't work here - the log says \
+                                why. Fix it, or turn Sandbox off"
+            .into(),
         Status::Failing => {
             "UxPlay keeps stopping - the log says why (is avahi-daemon running?)".into()
         }
@@ -1148,6 +1159,33 @@ pub fn page(tv: &Tv) {
     });
     *code_v.borrow_mut() = Some(code_label);
     body.append(&code);
+
+    // the sandbox: on unless you turn it off (with a warning)
+    let t = tv.clone();
+    let sb_v: Rc<RefCell<Option<gtk::Label>>> = Rc::new(RefCell::new(None));
+    let sv = sb_v.clone();
+    let (sb, sb_label) = ui::row("Sandbox", on_off(cfg.airplay_sandbox), move || {
+        let sv = sv.clone();
+        let set = move |t: &Tv, on: bool| {
+            t.change(|c| c.airplay_sandbox = on);
+            apply(&t.cfg());
+            if let Some(l) = sv.borrow().as_ref() {
+                l.set_text(if on { "On" } else { "Off" });
+            }
+        };
+        if t.cfg().airplay_sandbox {
+            ui::confirm(
+                &t,
+                "Run UxPlay without its sandbox? A bug in it could then reach your whole account.",
+                "Turn it off",
+                move |t| set(t, false),
+            );
+        } else {
+            set(&t, true);
+        }
+    });
+    *sb_v.borrow_mut() = Some(sb_label);
+    body.append(&sb);
 
     let t = tv.clone();
     let n = devices().len();

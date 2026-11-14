@@ -32,7 +32,7 @@ Other Linux with GTK 4.10 or newer and sway may work, but isn't tested.
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS   # with SHA256SUMS from the same release: must say "OK"
-sudo apt install ./rustdesktop_0.9.19_amd64.deb
+sudo apt install ./rustdesktop_0.9.20_amd64.deb
 ```
 
 It replaces the older `rusttouch` package if you have it, and installs sway and the helpers both
@@ -96,7 +96,7 @@ Intel/AMD and ARM on Ubuntu 24.04 (they work on 26.04 too) and puts them in a **
 
 ```sh
 # 1. bump `version` in Cargo.toml (and CHANGELOG.md) and commit it
-git tag v0.9.19
+git tag v0.9.20
 git push --tags
 # 2. wait for the "release" workflow, look over the draft under Releases, then publish it
 ```

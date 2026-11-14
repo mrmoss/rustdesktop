@@ -113,7 +113,10 @@ deb: _dist-build
     install -m 755 "{{dist_bin}}/rusttouch" "{{dist_bin}}/rusttouch-settings" "{{dist_bin}}/rusttv" "$pkg/usr/bin/"
     just _layer-shell-lib "$pkg/usr/lib/rusttouch"
     # The session files say /usr/local (where ./install-rusttouch.sh puts things); the package uses /usr.
-    put() { # put <mode> <source> <destination>
+    # put <mode> <source> <destination>: every file it packages gets
+    # /usr/local/ -> /usr/ (the .deb's places) - the polkit policies' exec.path
+    # too, so they match the helpers in /usr/libexec.
+    put() {
       mkdir -p "$(dirname "$pkg/$3")"
       sed 's#/usr/local/#/usr/#g' "$2" > "$pkg/$3"
       chmod "$1" "$pkg/$3"

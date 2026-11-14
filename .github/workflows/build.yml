@@ -59,6 +59,9 @@ jobs:
           # the programs must find the copy of gtk4-layer-shell that came with the package
           ldd /usr/bin/rusttouch | tee /dev/stderr | grep -q '/usr/lib/rusttouch/libgtk4-layer-shell'
           ldd /usr/bin/rusttv | tee /dev/stderr | grep -q '/usr/lib/rusttouch/libgtk4-layer-shell'
+          # the polkit policies point at the .deb's helpers, not /usr/local's
+          ! grep -q /usr/local/ /usr/share/polkit-1/actions/dev.rusttv.*.policy
+          test -x /usr/libexec/rusttv-autologin && test -x /usr/libexec/rusttv-update
           sudo apt-get remove -y rustdesktop
       - name: Release download (.tar.gz)
         run: |

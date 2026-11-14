@@ -97,6 +97,7 @@ the TV goes back home.
 * **Ask for a code** – *First time only* (each device once, then it's
   remembered), *Every time*, or *Never* (anyone on your network can show
   their screen).
+* **Sandbox** – UxPlay in its sandbox (on); off only if you choose.
 * **Restart AirPlay** – starts UxPlay again, fresh: for when a device
   connects but its screen doesn't show (what restarting RustTV did).
 * **Devices** – the devices that typed the code (with *First time only*),
@@ -122,10 +123,17 @@ RustTV's own (`~/.config/rusttv/airplay.devices`), from the devices that
 connect.
 
 UxPlay runs in a sandbox (bubblewrap, `sudo apt install bubblewrap`): it
-sees the system's programs, the TV's picture and sound, and of your home
-folder only `~/.config/rusttv/airplay`. If bubblewrap isn't installed or
-doesn't work there, RustTV runs UxPlay without it and Settings → AirPlay
-says so.
+sees the system's programs, the TV's picture (X11) and sound (PulseAudio),
+and of your home folder only `~/.config/rusttv/airplay`. RustTV never runs
+it without the sandbox by itself: if bubblewrap isn't installed or doesn't
+work there, AirPlay doesn't start and Settings → AirPlay says why.
+**Settings → AirPlay → Sandbox** turns it off, if you choose to (with a
+warning).
+
+What the sandbox still allows (it needs them for the picture and sound):
+through X11 it could see keys typed into, and send input to, other X11
+apps on the screen (Wayland apps - most - are kept apart); through the
+sound socket it could record from a microphone.
 
 If two TVs on your network have the same AirPlay name, UxPlay's log says
 `dnssd_register_airplay failed with error code -65548` (a name clash):
@@ -350,8 +358,10 @@ What it does to keep the rest safe:
 
 * **AirPlay** is off to start with; on, a device types a code (a new one
   each try) and only devices that did are let back in; UxPlay runs in a
-  sandbox that can't see your home folder.
-* **Autologin** takes an administrator's password to turn on.
+  sandbox that can't see your home folder, and that's never left out
+  unless you say (a device crashing UxPlay can't switch it off).
+* **Autologin** takes an administrator's password to turn on (sudo
+  remembers nothing; the password is wiped from memory after).
 * **Updates** need no password, but only update what's installed and never
   remove anything.
 * **Trust certificate** trusts the one key you saw, not whatever the server

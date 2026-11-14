@@ -279,6 +279,10 @@ fn build(
             let (tv, text, done) = (tv.clone(), text.clone(), done.clone());
             done_b.connect_clicked(move |_| {
                 let s = text.borrow().trim().to_string();
+                // (a password: gone from the keyboard once it's been given)
+                if secret {
+                    crate::autologin::wipe(&mut text.borrow_mut());
+                }
                 tv.back();
                 done(&tv, s);
             });
@@ -322,5 +326,10 @@ fn build(
             }
         })
     };
+    // (a password left with Back: gone from memory too)
+    if secret {
+        let text = text.clone();
+        root.connect_unmap(move |_| crate::autologin::wipe(&mut text.borrow_mut()));
+    }
     tv.push(&root, Some(keys));
 }

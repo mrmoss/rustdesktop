@@ -82,6 +82,8 @@ pub struct Config {
     pub airplay: bool,
     /// the name the TV has in AirPlay
     pub airplay_name: String,
+    /// UxPlay runs in its sandbox (bubblewrap) - off only when you say
+    pub airplay_sandbox: bool,
     /// when a device types a code: "first", "always", "never"
     pub airplay_code: String,
 }
@@ -403,6 +405,7 @@ impl Default for Config {
             airplay: false,
             airplay_name: "RustTV".into(),
             airplay_code: "first".into(),
+            airplay_sandbox: true,
         }
     }
 }
@@ -507,6 +510,7 @@ impl Config {
             airplay_name: Some(str_of(&v, "airplay_name"))
                 .filter(|n| !n.trim().is_empty())
                 .unwrap_or_else(|| "RustTV".into()),
+            airplay_sandbox: v["airplay_sandbox"].as_bool().unwrap_or(true),
             airplay_code: Some(str_of(&v, "airplay_code"))
                 .filter(|c| crate::airplay::CODES.iter().any(|x| x.0 == c))
                 .unwrap_or_else(|| "first".into()),
@@ -554,6 +558,7 @@ impl Config {
             "airplay": self.airplay,
             "airplay_name": self.airplay_name,
             "airplay_code": self.airplay_code,
+            "airplay_sandbox": self.airplay_sandbox,
             "mirror_fit": self.mirror_fit,
             "resolutions": self
                 .resolutions

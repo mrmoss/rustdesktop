@@ -189,7 +189,7 @@ src/
   ```
 - `~/.config/rusttouch/style.css` - loaded on top of the built-in theme
 - `~/.config/rusttouch/env` - sourced by the session, e.g. `RUSTTOUCH_COMPOSITOR=labwc`,
-  `RUSTTOUCH_ROTATE_INVERT=1` (if rotation goes the wrong way), `RUSTTOUCH_SHOW_CURSOR=1`
+  `RUSTTOUCH_ROTATE_INVERT=1` (if auto-rotate turns the wrong way in portrait - a device whose tilt sensor is mounted the other way round), `RUSTTOUCH_SHOW_CURSOR=1`
 
 Logs: `$XDG_RUNTIME_DIR/rusttouch/rusttouch.log` (i.e. `/run/user/$(id -u)/rusttouch/rusttouch.log`).
 At startup it says which keyboard it uses and which button devices it watches.

@@ -482,37 +482,48 @@ fn updates_page(tv: &Tv) {
                 return;
             }
             let (busy, iv) = (busy.clone(), install_v.clone());
-            ui::confirm(&t2, "Install all updates?", "Install", move |t| {
-                busy.set(true);
-                iv.set_text("Installing...");
-                t.toast("Installing updates - this can take a while");
-                let (tx, rx) = std::sync::mpsc::channel();
-                std::thread::spawn(move || {
-                    let _ = tx.send(crate::updates::install());
-                });
-                let (busy, iv) = (busy.clone(), iv.clone());
-                gtk::glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
-                    let Ok(r) = rx.try_recv() else {
-                        return gtk::glib::ControlFlow::Continue;
-                    };
-                    busy.set(false);
-                    crate::with_tv(|t| match r {
-                        Ok(true) => {
-                            iv.set_text("Done - restart to finish");
-                            t.toast("Updates installed - restart to finish");
-                        }
-                        Ok(false) => {
-                            iv.set_text("Done");
-                            t.toast("Updates installed");
-                        }
-                        Err(e) => {
-                            iv.set_text("Failed");
-                            t.toast(&format!("Updating failed: {e}"));
-                        }
+            // (installing runs as root: an administrator's password)
+            keyboard::ask_secret(
+                &t2,
+                "Your password, to install all updates",
+                move |t, pw| {
+                    if pw.is_empty() {
+                        return;
+                    }
+                    busy.set(true);
+                    iv.set_text("Installing...");
+                    t.toast("Installing updates - this can take a while");
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    std::thread::spawn(move || {
+                        let _ = tx.send(crate::updates::install(pw));
                     });
-                    gtk::glib::ControlFlow::Break
-                });
-            });
+                    let (busy, iv) = (busy.clone(), iv.clone());
+                    gtk::glib::timeout_add_local(
+                        std::time::Duration::from_millis(500),
+                        move || {
+                            let Ok(r) = rx.try_recv() else {
+                                return gtk::glib::ControlFlow::Continue;
+                            };
+                            busy.set(false);
+                            crate::with_tv(|t| match r {
+                                Ok(true) => {
+                                    iv.set_text("Done - restart to finish");
+                                    t.toast("Updates installed - restart to finish");
+                                }
+                                Ok(false) => {
+                                    iv.set_text("Done");
+                                    t.toast("Updates installed");
+                                }
+                                Err(e) => {
+                                    iv.set_text("Failed");
+                                    t.toast(&format!("Updating failed: {e}"));
+                                }
+                            });
+                            gtk::glib::ControlFlow::Break
+                        },
+                    );
+                },
+            );
         });
     }
     let pg = ui::page("Updates", &body);

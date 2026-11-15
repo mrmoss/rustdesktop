@@ -445,8 +445,9 @@ fn supervise(g: u64, name: String, code: String, sandbox: bool) {
                     if line.starts_with("bwrap:") {
                         bw.store(true, Ordering::SeqCst);
                     }
-                    let low = line.to_ascii_lowercase();
-                    if low.contains("gstreamer plugin") && low.contains("not found") {
+                    // (UxPlay's lines are matched exactly, from their start:
+                    // a device names itself, and its name is in some of them)
+                    if line.starts_with("Required gstreamer plugin") && line.contains("not found") {
                         *STATUS.lock().unwrap() = Status::NoPlugins;
                     }
                     // (a device going doesn't put the code away: pairing
@@ -454,23 +455,16 @@ fn supervise(g: u64, name: String, code: String, sandbox: bool) {
                     // code's typed)
                     // a device asks for the code:
                     //   *** CLIENT MUST NOW ENTER PIN = "7199" AS AIRPLAY PASSWORD
-                    if line.contains("MUST NOW ENTER PIN") {
-                        let shown = line
-                            .split('"')
-                            .nth(1)
-                            .filter(|c| c.len() == 4 && c.chars().all(|c| c.is_ascii_digit()))
-                            .map(str::to_string);
-                        if let Some(c) = shown {
-                            JUST_PAIRED.store(true, Ordering::SeqCst);
-                            eprintln!("rusttv: airplay: showing the code");
-                            crate::on_main(move || show_code(&c));
-                        }
+                    if let Some(c) = pin_line(&line) {
+                        JUST_PAIRED.store(true, Ordering::SeqCst);
+                        eprintln!("rusttv: airplay: showing the code");
+                        crate::on_main(move || show_code(&c));
                     }
                     // paired (or a paired one back), connecting:
                     //   connection request from NAME (MODEL) with deviceID = ID
                     // the screen's coming: its window should be on screen
                     // soon - check, in a few seconds
-                    if line.contains("Begin streaming") {
+                    if line.trim() == "Begin streaming to GStreamer video pipeline" {
                         crate::on_main(|| {
                             glib::timeout_add_local_once(Duration::from_secs(6), check_window);
                         });
@@ -717,6 +711,18 @@ fn code_box(digits: &gtk::Label) -> gtk::Box {
 /// Show `code` big, over everything, for a minute (or until mirroring
 /// starts).
 pub fn show_code(code: &str) {
+    // (once every 3 seconds at most: a flood of them can't keep the
+    // remote's keys)
+    thread_local! {
+        static LAST: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
+    }
+    if LAST.with(|l| {
+        l.get()
+            .is_some_and(|t| t.elapsed() < Duration::from_secs(3))
+    }) {
+        return;
+    }
+    LAST.with(|l| l.set(Some(Instant::now())));
     let spaced: String = code
         .chars()
         .map(|c| c.to_string())
@@ -856,17 +862,67 @@ fn devices_file() -> PathBuf {
     config::dir().join("airplay.devices")
 }
 
-/// The device in a UxPlay "connection request" line.
+/// UxPlay asking for the code, exactly:
+///   *** CLIENT MUST NOW ENTER PIN = "7199" AS AIRPLAY PASSWORD
+/// The 4 digits, or None for anything else.
+fn pin_line(line: &str) -> Option<String> {
+    let rest = line.strip_prefix("*** CLIENT MUST NOW ENTER PIN = \"")?;
+    let (code, tail) = rest.split_once('"')?;
+    (code.len() == 4
+        && code.chars().all(|c| c.is_ascii_digit())
+        && tail.trim() == "AS AIRPLAY PASSWORD")
+        .then(|| code.to_string())
+}
+
+/// What UxPlay's lines are known by: a device name with one of these in it
+/// is refused (it could only be trying to look like one).
+const MARKERS: &[&str] = &[
+    "***",
+    "MUST NOW ENTER PIN",
+    "connection request from",
+    "with deviceID",
+    "Begin streaming",
+    "rusttv:",
+    "uxplay:",
+];
+
+/// A name a device gave, if it's one to show: no control characters (line
+/// breaks, tabs), none of UxPlay's markers, not too long.
+fn clean_name(s: &str) -> Option<String> {
+    let s = s.trim();
+    (!s.is_empty()
+        && s.chars().count() <= 64
+        && !s.chars().any(char::is_control)
+        && !MARKERS.iter().any(|m| s.contains(m)))
+    .then(|| s.to_string())
+}
+
+/// The device in a UxPlay "connection request" line - the line has to start
+/// with it, the ID has to look like one, and the name has to be clean.
 fn connecting(line: &str) -> Option<Device> {
-    let rest = line.split("connection request from ").nth(1)?;
+    let rest = line.strip_prefix("connection request from ")?;
     let (who, id) = rest.rsplit_once(" with deviceID = ")?;
+    let id = id.trim();
+    if id.is_empty()
+        || id.len() > 64
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == ':' || c == '-')
+    {
+        return None;
+    }
     let (name, model) = match who.rsplit_once(" (") {
-        Some((n, m)) => (n.to_string(), m.trim_end_matches(')').to_string()),
-        None => (who.to_string(), String::new()),
+        Some((n, m)) => (n, m.strip_suffix(')').unwrap_or(m)),
+        None => (who, ""),
+    };
+    let model = if model.is_empty() {
+        String::new()
+    } else {
+        clean_name(model)?
     };
     Some(Device {
-        id: id.trim().to_string(),
-        name: name.trim().to_string(),
+        id: id.to_string(),
+        name: clean_name(name)?,
         model,
     })
 }

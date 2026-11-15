@@ -1,12 +1,17 @@
 #!/bin/sh
-# RustTV's update helper: runs as root through pkexec, for the person at the
-# TV. It only updates what's installed, from the sources already set up -
-# and never removes anything (no dist-upgrade, no autoremove: allowed without
-# a password, it mustn't be able to take packages away).
-#   rusttv-update refresh   # fetch the package lists (apt-get update)
-#   rusttv-update upgrade   # install the updates: apt, snaps, system Flatpaks
+# RustTV's update helper, run as root. It only updates what's installed,
+# from the sources already set up, and never removes anything (no
+# dist-upgrade, no autoremove).
+#   rusttv-update refresh   # fetch the package lists (apt-get update) -
+#                           # through pkexec, no password (the person at the TV)
+#   rusttv-update upgrade   # install the updates: apt, snaps, system Flatpaks -
+#                           # through sudo, with an administrator's password
 set -eu
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
+# (installing takes an administrator's password: never through pkexec)
+if [ "${1:-}" = upgrade ] && [ -z "${SUDO_UID:-}" ]; then
+  echo "installing updates needs an administrator's password (sudo)" >&2; exit 1
+fi
 export DEBIAN_FRONTEND=noninteractive
 LOG=/var/log/rusttv-update.log
 case "${1:-}" in

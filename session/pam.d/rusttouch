@@ -1,2 +1,4 @@
-# PAM service for the rusttouch lock screen
+# PAM service for the rusttouch lock screen: the password, then the account
+# (an expired or locked account doesn't unlock)
 @include common-auth
+@include common-account

@@ -172,18 +172,16 @@ pub fn bt_list(scan: bool) -> Vec<BtDevice> {
         .map(|(mac, name)| {
             let info = run_capture(3, "bluetoothctl", &["info", &mac]).1;
             // the nickname (Alias) if one is set
-            let name = info
-                .lines()
-                .find_map(|l| {
-                    l.trim()
-                        .strip_prefix("Alias:")
-                        .map(|a| a.trim().to_string())
-                })
+            let name = bt_field(&info, "Alias")
+                .map(str::to_string)
                 .filter(|a| !a.is_empty())
                 .unwrap_or(name);
+            // (shown on one line: no line breaks or other control
+            // characters from a device's name)
+            let name: String = name.chars().filter(|c| !c.is_control()).collect();
             BtDevice {
-                paired: info.contains("Paired: yes"),
-                connected: info.contains("Connected: yes"),
+                paired: bt_field(&info, "Paired") == Some("yes"),
+                connected: bt_field(&info, "Connected") == Some("yes"),
                 name: if name.is_empty() || name.replace('-', ":") == mac {
                     mac.clone()
                 } else {
@@ -244,18 +242,17 @@ fn bt_is_input(mac: &str) -> bool {
     if !ok {
         return true;
     }
-    let icon = info
-        .lines()
-        .find_map(|l| l.trim().strip_prefix("Icon:"))
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default();
+    let icon = bt_field(&info, "Icon").unwrap_or_default();
     // the device picks its own Icon, so the services it offers count too:
-    // classic Bluetooth HID (0x1124) and Bluetooth Low Energy HID (HOGP, 0x1812)
-    let info = info.to_ascii_lowercase();
+    // classic Bluetooth HID (0x1124) and Bluetooth Low Energy HID (HOGP,
+    // 0x1812) - from its UUID lines only
+    let uuids = bt_uuids(&info);
     icon.is_empty()
         || icon.starts_with("input-")
-        || info.contains("00001124-0000-1000-8000-00805f9b34fb")
-        || info.contains("00001812-0000-1000-8000-00805f9b34fb")
+        || uuids.iter().any(|u| {
+            u.contains("00001124-0000-1000-8000-00805f9b34fb")
+                || u.contains("00001812-0000-1000-8000-00805f9b34fb")
+        })
 }
 
 /// Give a device a nickname (BlueZ "Alias" - shows up everywhere, not just
@@ -318,13 +315,33 @@ pub fn wifi_on() -> Option<bool> {
 /// Bluetooth switched on? (None: no Bluetooth)
 pub fn bt_on() -> Option<bool> {
     let (_, s, _) = run_capture(3, "bluetoothctl", &["show"]);
-    if s.contains("Powered: yes") {
-        Some(true)
-    } else if s.contains("Powered: no") {
-        Some(false)
-    } else {
-        None
+    match bt_field(&s, "Powered") {
+        Some("yes") => Some(true),
+        Some("no") => Some(false),
+        _ => None,
     }
+}
+
+/// A field of `bluetoothctl info` / `show`: its own line ("\tPaired: yes"),
+/// the *last* one with that name. (A device names itself, and a name can
+/// hold a line break: a "Paired: yes" in it comes before the real line,
+/// which bluetoothctl prints after the name - so the last is the real one.
+/// And never a match inside another line.)
+fn bt_field<'a>(info: &'a str, key: &str) -> Option<&'a str> {
+    info.lines().rev().find_map(|l| {
+        l.trim_start()
+            .strip_prefix(key)?
+            .strip_prefix(':')
+            .map(str::trim)
+    })
+}
+
+/// The services a device lists (its "UUID:" lines, lowercase).
+fn bt_uuids(info: &str) -> Vec<String> {
+    info.lines()
+        .filter_map(|l| l.trim_start().strip_prefix("UUID:"))
+        .map(|u| u.to_ascii_lowercase())
+        .collect()
 }
 
 /// The connected network's name, if any.

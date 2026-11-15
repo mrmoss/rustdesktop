@@ -3,17 +3,20 @@
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <policyconfig>
   <vendor>RustTV</vendor>
-  <action id="dev.rusttv.update">
-    <description>Install system, snap and Flatpak updates</description>
-    <message>RustTV wants to install updates</message>
-    <!-- The person sitting at the TV (the active local session) may do this
-         without a password (only updates of what is installed): RustTV has no password
-         prompt for a remote. -->
+  <action id="dev.rusttv.update.refresh">
+    <description>Check for system updates (fetch the package lists)</description>
+    <message>RustTV wants to check for updates</message>
+    <!-- Only fetching the package lists (apt-get update), so RustTV can say
+         what's new: the person at the TV (the active local session), without
+         a password. Installing takes an administrator's password (RustTV runs
+         the helper through sudo for that), and the helper refuses "upgrade"
+         through pkexec. -->
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
       <allow_active>yes</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/rusttv-update</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">refresh</annotate>
   </action>
 </policyconfig>

@@ -9,6 +9,8 @@ use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
 
 const PAM_SUCCESS: c_int = 0;
+/// (the password is due for a change - the account itself is fine)
+const PAM_NEW_AUTHTOK_REQD: c_int = 12;
 const PAM_BUF_ERR: c_int = 5;
 const PAM_CONV_ERR: c_int = 19;
 const PAM_PROMPT_ECHO_OFF: c_int = 1;
@@ -50,6 +52,7 @@ extern "C" {
         pamh: *mut *mut c_void,
     ) -> c_int;
     fn pam_authenticate(pamh: *mut c_void, flags: c_int) -> c_int;
+    fn pam_acct_mgmt(pamh: *mut c_void, flags: c_int) -> c_int;
     fn pam_end(pamh: *mut c_void, status: c_int) -> c_int;
 }
 
@@ -183,7 +186,17 @@ pub fn authenticate(user: &str, password: String) -> bool {
         if pam_start(service.as_ptr(), user.as_ptr(), &c, &mut h) != PAM_SUCCESS {
             false
         } else {
-            let rc = pam_authenticate(h, 0);
+            let mut rc = pam_authenticate(h, 0);
+            // the account too: expired or locked by an administrator, no
+            // unlocking. (Only the password being due for a change still
+            // unlocks: there's no changing it here, and the session's yours -
+            // the next login asks.)
+            if rc == PAM_SUCCESS {
+                rc = match pam_acct_mgmt(h, 0) {
+                    PAM_NEW_AUTHTOK_REQD => PAM_SUCCESS,
+                    r => r,
+                };
+            }
             pam_end(h, rc);
             rc == PAM_SUCCESS
         }

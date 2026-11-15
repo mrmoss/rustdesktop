@@ -302,10 +302,26 @@ pub fn dir() -> PathBuf {
     base.join("rusttv")
 }
 
+/// The home folder: $HOME, else the one the system has for this account
+/// (/etc/passwd). (Never a folder anyone can write to.)
 pub fn home() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/"))
+        .filter(|p| p.is_absolute())
+        .or_else(passwd_home)
+        .unwrap_or_else(|| PathBuf::from("/nonexistent"))
+}
+
+fn passwd_home() -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let uid = std::fs::metadata("/proc/self").ok()?.uid().to_string();
+    std::fs::read_to_string("/etc/passwd")
+        .ok()?
+        .lines()
+        .map(|l| l.split(':').collect::<Vec<_>>())
+        .find(|f| f.len() >= 6 && f[2] == uid)
+        .map(|f| PathBuf::from(f[5]))
+        .filter(|p| p.is_absolute())
 }
 
 fn path() -> PathBuf {

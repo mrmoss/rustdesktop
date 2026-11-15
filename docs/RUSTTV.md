@@ -130,10 +130,17 @@ work there, AirPlay doesn't start and Settings → AirPlay says why.
 **Settings → AirPlay → Sandbox** turns it off, if you choose to (with a
 warning).
 
-What the sandbox still allows (it needs them for the picture and sound):
-through X11 it could see keys typed into, and send input to, other X11
-apps on the screen (Wayland apps - most - are kept apart); through the
-sound socket it could record from a microphone.
+What the sandbox still allows (AirPlay needs them): the network (it's a
+network service); the system bus (to show up on the network, through
+Avahi); X11 (the picture) - it could see keys typed into, and send input
+to, other X11 apps on the screen (Wayland apps - most - are kept apart);
+the sound socket - it could record from a microphone; and `/etc`, read
+only (what your account can read anyway).
+
+UxPlay's messages are read exactly, from the start of their lines (a
+device names itself, and its name is in some of them): a name with
+UxPlay's own phrases, control characters or tabs in it is refused, and the
+code shows at most once every 3 seconds.
 
 If two TVs on your network have the same AirPlay name, UxPlay's log says
 `dnssd_register_airplay failed with error code -65548` (a name clash):
@@ -299,9 +306,12 @@ browser, those services stream at up to 720p-1080p.
   Needs swayidle (`sudo apt install swayidle`).
 * **Updates** – checks the system (apt), snaps and Flatpaks, and installs
   them all (apt `upgrade --with-new-pkgs`, `snap refresh`, `flatpak
-  update`). A helper (`/usr/local/libexec/rusttv-update`) does it with a
-  polkit rule for the person at the TV, without a password: it only updates
-  what's installed, and never removes anything.
+  update`). A helper (`/usr/local/libexec/rusttv-update`) does it: checking
+  (fetching the package lists) without a password, for the person at the TV
+  (a polkit rule); installing with an administrator's password, typed on
+  RustTV's keyboard (sudo). It only updates what's installed, and never
+  removes anything. (Ubuntu's own unattended-upgrades still installs
+  security updates by itself.)
   Its log: `/var/log/rusttv-update.log`.
 * **Power button** – what the remote's power button does: *Suspend* (to
   start with), *Show the power menu*, *Shut down*, or *Nothing*. (RustTV
@@ -362,8 +372,9 @@ What it does to keep the rest safe:
   unless you say (a device crashing UxPlay can't switch it off).
 * **Autologin** takes an administrator's password to turn on (sudo
   remembers nothing; the password is wiped from memory after).
-* **Updates** need no password, but only update what's installed and never
-  remove anything.
+* **Updates**: checking needs no password (it only fetches the package
+  lists); installing takes an administrator's password, and never removes
+  anything.
 * **Trust certificate** trusts the one key you saw, not whatever the server
   shows later.
 * Launcher addresses are `http://` or `https://` only; downloaded icons

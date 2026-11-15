@@ -102,6 +102,44 @@ pub fn state() -> State {
     State::Unsupported
 }
 
+/// Run a root helper (`path what`) through sudo with an administrator's
+/// password (`pw`, wiped once given). `-k`: sudo remembers nothing. Err: a
+/// wrong password, or an account that isn't an administrator, said simply.
+pub fn as_admin(path: &str, what: &str, pw: &mut String) -> Result<std::process::Output, String> {
+    if crate::launch::find("sudo").is_none() {
+        wipe(pw);
+        return Err("sudo isn't installed".into());
+    }
+    let mut child = Command::new("sudo")
+        .args(["-k", "-S", "-p", ""])
+        .arg(path)
+        .arg(what)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("couldn't ask for permission: {e}"))?;
+    if let Some(mut i) = child.stdin.take() {
+        use std::io::Write;
+        let _ = writeln!(i, "{pw}");
+    }
+    // (the password, gone from memory)
+    wipe(pw);
+    let out = child
+        .wait_with_output()
+        .map_err(|e| format!("couldn't ask for permission: {e}"))?;
+    if !out.status.success() {
+        let msg = String::from_utf8_lossy(&out.stderr).to_lowercase();
+        if msg.contains("sudoers") || msg.contains("not allowed") {
+            return Err("this account isn't an administrator".into());
+        }
+        if msg.contains("incorrect") || msg.contains("try again") || msg.contains("password") {
+            return Err("wrong password".into());
+        }
+    }
+    Ok(out)
+}
+
 /// Overwrite a password in memory (zeros are still valid text).
 pub fn wipe(s: &mut String) {
     // SAFETY: zero bytes are valid UTF-8
@@ -124,38 +162,7 @@ pub fn set(on: bool, password: Option<String>) -> Result<(), String> {
         let Some(mut pw) = password else {
             return Err("it needs your password".into());
         };
-        if crate::launch::find("sudo").is_none() {
-            return Err("sudo isn't installed".into());
-        }
-        // (-k: sudo remembers nothing - the next time asks again)
-        let mut child = Command::new("sudo")
-            .args(["-k", "-S", "-p", ""])
-            .arg(helper_path())
-            .arg("enable")
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("couldn't ask for permission: {e}"))?;
-        if let Some(mut i) = child.stdin.take() {
-            use std::io::Write;
-            let _ = writeln!(i, "{pw}");
-        }
-        // (the password, gone from memory)
-        wipe(&mut pw);
-        let out = child
-            .wait_with_output()
-            .map_err(|e| format!("couldn't ask for permission: {e}"))?;
-        if !out.status.success() {
-            let msg = String::from_utf8_lossy(&out.stderr).to_lowercase();
-            if msg.contains("sudoers") || msg.contains("not allowed") {
-                return Err("this account isn't an administrator".into());
-            }
-            if msg.contains("incorrect") || msg.contains("try again") || msg.contains("password") {
-                return Err("wrong password".into());
-            }
-        }
-        out
+        as_admin(helper_path(), "enable", &mut pw)?
     } else {
         Command::new("pkexec")
             .arg(helper_path())

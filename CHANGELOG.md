@@ -2,6 +2,39 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.9.22
+
+RustTouch:
+
+- **Auto-rotate**: the two portrait directions were swapped under sway, on
+  every device. Sway counts rotations clockwise (its manual: "The rotation
+  is performed clockwise"); the Wayland standard (wlr-randr) and X11 count
+  them anticlockwise, and RustTouch gave sway the anticlockwise number.
+  Fixed for sway; the others were right. (`RUSTTOUCH_ROTATE_INVERT=1` is
+  still there for a device whose tilt sensor is mounted the other way.)
+
+Security fixes, from a third review:
+
+- RustTouch: the lock screen checks the **account** too (`pam_acct_mgmt`;
+  its PAM service includes `common-account`): an expired or locked account
+  doesn't unlock. (A password only due for a change still does - there's no
+  changing it there; the next login asks.)
+- RustTouch: the buttons udev rule only covers the machine's own buttons -
+  not USB or Bluetooth ones (numeric keypads, remotes, macro pads).
+- RustTouch: settings never come from `/tmp`: with HOME unset, the home
+  folder from /etc/passwd (RustTV's likewise).
+- RustTouch and RustTV: **Bluetooth** state is read from each field's own
+  line, the last one (a device name can hold a line break and a fake
+  "Paired: yes"); names show without control characters.
+- RustTV: **installing updates takes an administrator's password** (sudo
+  -k, wiped after); checking for them still doesn't (the polkit rule only
+  allows fetching the package lists now - so the .deb's rule is harmless for
+  RustTouch-only users too).
+- RustTV: UxPlay's messages are matched exactly, from the start of their
+  lines; device names with UxPlay's phrases, control characters or tabs are
+  refused; the code pop-up shows at most once every 3 seconds.
+- Docs: what AirPlay's sandbox still allows, and why.
+
 ## 0.9.21
 
 - RustTV: a code comment fix (autologin.rs: `set()`'s doc comment had

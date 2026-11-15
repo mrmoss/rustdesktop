@@ -93,9 +93,18 @@ pub fn check() -> Result<Found, String> {
     Ok(f)
 }
 
-/// Install them all. Ok(true): restart to finish.
-pub fn install() -> Result<bool, String> {
-    helper("upgrade")?;
+/// Install them all - with an administrator's password (`pw`, wiped once
+/// given). Ok(true): restart to finish.
+pub fn install(mut pw: String) -> Result<bool, String> {
+    if !std::path::Path::new(helper_path()).exists() {
+        crate::autologin::wipe(&mut pw);
+        return Err("the update helper isn't installed (run install-rusttv.sh)".into());
+    }
+    let o = crate::autologin::as_admin(helper_path(), "upgrade", &mut pw)?;
+    if !o.status.success() {
+        let e = String::from_utf8_lossy(&o.stderr).trim().to_string();
+        return Err(e.lines().last().unwrap_or("it failed").to_string());
+    }
     // your own (not system-wide) Flatpaks need no permission
     if have("flatpak") {
         let _ = Command::new("flatpak")

@@ -16,6 +16,11 @@ sudo rm -f \
   /usr/local/libexec/rusttv-update \
   /usr/share/polkit-1/actions/dev.rusttv.update.policy
 sudo rm -rf /usr/local/share/rusttv
+# the AppArmor profile for AirPlay's sandbox - only if RustTV's installer added it
+if [ -f /etc/apparmor.d/rusttv-bwrap ] && grep -q "Added by RustTV" /etc/apparmor.d/rusttv-bwrap; then
+  sudo apparmor_parser -R /etc/apparmor.d/rusttv-bwrap 2>/dev/null || true
+  sudo rm -f /etc/apparmor.d/rusttv-bwrap
+fi
 # (the copy of gtk4-layer-shell a downloaded release brought, unless RustTouch uses it)
 [ -e /usr/local/bin/rusttouch ] || sudo rm -rf /usr/local/lib/rusttouch
 echo "RustTV removed. Settings are still in ~/.config/rusttv (delete it to start fresh)."

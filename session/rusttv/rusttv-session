@@ -52,4 +52,10 @@ fi
   [ -f "$HOME/.config/rusttv/sway.conf" ] && echo "include $HOME/.config/rusttv/sway.conf"
 } > "$RT/sway-config"
 [ -f "$RT/sway.log" ] && mv -f "$RT/sway.log" "$RT/sway.log.old"
-exec sway $SWAY_GPU -c "$RT/sway-config" 2>"$RT/sway.log"
+sway $SWAY_GPU -c "$RT/sway-config" 2>"$RT/sway.log"
+# sway has gone (you logged out, or it stopped): end the whole login session,
+# so nothing it started stays behind - a session left running on the screen
+# makes logging into another desktop (GNOME) fail straight away
+if [ -n "${XDG_SESSION_ID:-}" ] && command -v loginctl >/dev/null; then
+  loginctl terminate-session "$XDG_SESSION_ID"
+fi

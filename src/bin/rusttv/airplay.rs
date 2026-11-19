@@ -46,6 +46,8 @@ static STATUS: Mutex<Status> = Mutex::new(Status::Off);
 static RUNNING: Mutex<Option<(String, String, bool)>> = Mutex::new(None);
 /// the name the running UxPlay has (its X11 window has it as its title)
 static NAME: Mutex<String> = Mutex::new(String::new());
+/// what bubblewrap said when it couldn't start (for the settings page)
+static BWRAP_ERROR: Mutex<String> = Mutex::new(String::new());
 /// whether the running UxPlay is sandboxed (None: not running)
 static SANDBOXED: Mutex<Option<bool>> = Mutex::new(None);
 /// a device has just typed the code (to check UxPlay kept it)
@@ -444,6 +446,7 @@ fn supervise(g: u64, name: String, code: String, sandbox: bool) {
                     }
                     if line.starts_with("bwrap:") {
                         bw.store(true, Ordering::SeqCst);
+                        *BWRAP_ERROR.lock().unwrap() = line.clone();
                     }
                     // (UxPlay's lines are matched exactly, from their start:
                     // a device names itself, and its name is in some of them)
@@ -626,6 +629,12 @@ fn check_window() {
         Some(w) => window_opened(w),
         None => RESTART.store(true, Ordering::SeqCst),
     }
+}
+
+/// Is a device mirroring now (its window open)? (keeps the TV from
+/// suspending: there's no media player saying it's playing)
+pub fn mirroring() -> bool {
+    MIRRORING.load(Ordering::SeqCst)
 }
 
 /// Has `id` (an AirPlay window) been put on screen already?
@@ -962,6 +971,18 @@ fn remember_device(d: &Device) {
 }
 
 /// Start UxPlay again (it reads what it knows at the start).
+/// Restart AirPlay (Settings, or `rusttv --do airplay-restart`): also after
+/// it gave up (bubblewrap fixed since).
+pub fn restart_from(tv: &Tv, from: &str) {
+    if !tv.cfg().airplay {
+        tv.toast("AirPlay is off");
+        return;
+    }
+    eprintln!("rusttv: airplay: restarted ({from})");
+    restart(tv);
+    tv.toast("AirPlay is starting again - connect in a moment");
+}
+
 fn restart(tv: &Tv) {
     *RUNNING.lock().unwrap() = None;
     apply(&tv.cfg());
@@ -1111,9 +1132,17 @@ fn status_text(cfg: &Config) -> String {
             "Needs bubblewrap, UxPlay's sandbox: sudo apt install bubblewrap (or turn Sandbox off)"
                 .into()
         }
-        Status::BwrapBroken => "UxPlay's sandbox (bubblewrap) doesn't work here - the log says \
-                                why. Fix it, or turn Sandbox off"
-            .into(),
+        Status::BwrapBroken => {
+            let e = BWRAP_ERROR.lock().unwrap().clone();
+            // Ubuntu's AppArmor: no private namespaces for programs
+            if e.contains("uid map") || e.contains("Permission denied") || e.contains("namespace") {
+                "UxPlay's sandbox is blocked by Ubuntu's AppArmor: run install-rusttv.sh again to \
+                 allow it (docs/RUSTTV.md, AirPlay, has the steps)"
+                    .into()
+            } else {
+                format!("UxPlay's sandbox (bubblewrap) doesn't work here ({e}). Fix it, or turn Sandbox off")
+            }
+        }
         Status::Failing => {
             "UxPlay keeps stopping - the log says why (is avahi-daemon running?)".into()
         }
@@ -1251,13 +1280,7 @@ pub fn page(tv: &Tv) {
     // (what restarting RustTV did, when a device won't show its screen)
     let t = tv.clone();
     let (again, _) = ui::row("Restart AirPlay", "", move || {
-        if !t.cfg().airplay {
-            t.toast("AirPlay is off");
-            return;
-        }
-        eprintln!("rusttv: airplay: restarted from Settings");
-        restart(&t);
-        t.toast("AirPlay is starting again - connect in a moment");
+        restart_from(&t, "Settings");
     });
     body.append(&again);
 

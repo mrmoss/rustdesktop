@@ -140,6 +140,18 @@ pub fn as_admin(path: &str, what: &str, pw: &mut String) -> Result<std::process:
     Ok(out)
 }
 
+/// This account's name (for the commands to give).
+pub fn account() -> String {
+    std::env::var("USER")
+        .ok()
+        .filter(|u| {
+            !u.is_empty()
+                && u.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
+        })
+        .unwrap_or_else(|| "THIS-ACCOUNT".into())
+}
+
 /// Overwrite a password in memory (zeros are still valid text).
 pub fn wipe(s: &mut String) {
     // SAFETY: zero bytes are valid UTF-8
@@ -162,7 +174,19 @@ pub fn set(on: bool, password: Option<String>) -> Result<(), String> {
         let Some(mut pw) = password else {
             return Err("it needs your password".into());
         };
-        as_admin(helper_path(), "enable", &mut pw)?
+        as_admin(helper_path(), "enable", &mut pw).map_err(|e| {
+            if e.contains("administrator") {
+                // (the TV's own account, not an administrator - as it should
+                // be: from one that is)
+                format!(
+                    "this account isn't an administrator - from one that is: sudo {} enable {}",
+                    helper_path(),
+                    account()
+                )
+            } else {
+                e
+            }
+        })?
     } else {
         Command::new("pkexec")
             .arg(helper_path())

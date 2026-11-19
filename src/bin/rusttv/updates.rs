@@ -100,7 +100,16 @@ pub fn install(mut pw: String) -> Result<bool, String> {
         crate::autologin::wipe(&mut pw);
         return Err("the update helper isn't installed (run install-rusttv.sh)".into());
     }
-    let o = crate::autologin::as_admin(helper_path(), "upgrade", &mut pw)?;
+    let o = crate::autologin::as_admin(helper_path(), "upgrade", &mut pw).map_err(|e| {
+        if e.contains("administrator") {
+            format!(
+                "this account isn't an administrator - from one that is: sudo {} upgrade",
+                helper_path()
+            )
+        } else {
+            e
+        }
+    })?;
     if !o.status.success() {
         let e = String::from_utf8_lossy(&o.stderr).trim().to_string();
         return Err(e.lines().last().unwrap_or("it failed").to_string());

@@ -130,6 +130,28 @@ work there, AirPlay doesn't start and Settings → AirPlay says why.
 **Settings → AirPlay → Sandbox** turns it off, if you choose to (with a
 warning).
 
+On Ubuntu, AppArmor can stop bubblewrap making its sandbox (the log says
+`bwrap: setting up uid map: Permission denied`; Settings → AirPlay says
+AppArmor blocks it). `install-rusttv.sh` offers to add a small AppArmor
+profile that allows it (`/etc/apparmor.d/rusttv-bwrap`; any program could
+then use bubblewrap for its own sandboxes, as Flatpak needs too).
+`uninstall-rusttv.sh` takes it away again. By hand, or with the `.deb`:
+
+```sh
+sudo tee /etc/apparmor.d/rusttv-bwrap >/dev/null <<'EOF'
+abi <abi/4.0>,
+include <tunables/global>
+profile rusttv-bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  include if exists <local/rusttv-bwrap>
+}
+EOF
+sudo apparmor_parser -r /etc/apparmor.d/rusttv-bwrap
+bwrap --ro-bind / / --dev /dev --proc /proc true && echo "bwrap works"
+```
+
+Then Settings → AirPlay → Restart AirPlay.
+
 What the sandbox still allows (AirPlay needs them): the network (it's a
 network service); the system bus (to show up on the network, through
 Avahi); X11 (the picture) - it could see keys typed into, and send input
@@ -302,7 +324,9 @@ browser, those services stream at up to 720p-1080p.
 * **Battery** (only with one) – its level at the top of the home screen,
   and a warning over everything when it runs low.
 * **Auto suspend** – after 15 minutes to 4 hours with nothing going on
-  (a video playing keeps it awake: browsers ask the screen to stay on).
+  (a video playing keeps it awake - a browser playing, or asking the screen
+  to stay on - and so does AirPlay mirroring; then it looks again every
+  minute until nothing is).
   Needs swayidle (`sudo apt install swayidle`).
 * **Updates** – checks the system (apt), snaps and Flatpaks, and installs
   them all (apt `upgrade --with-new-pkgs`, `snap refresh`, `flatpak
@@ -316,7 +340,9 @@ browser, those services stream at up to 720p-1080p.
 * **Power button** – what the remote's power button does: *Suspend* (to
   start with), *Show the power menu*, *Shut down*, or *Nothing*. (RustTV
   keeps the button from the system, which would shut down, while it runs.)
-* **Power** – suspend, restart, shut down, log out.
+* **Power** – suspend, restart, shut down, log out. Logging out ends the
+  whole login session (everything RustTV started), so the login screen can
+  start another desktop - GNOME - straight after.
 
 Typing (names, web addresses) uses an on-screen keyboard you move through
 with the arrows; a real keyboard types straight in.
@@ -332,9 +358,11 @@ Turn it off with **Settings → Keyboard in apps**; give a remote button
 * `~/.config/rusttv/sway.conf` – extra sway config (included at the end).
 * `~/.config/rusttv/env` – environment variables for the session.
 * `~/.config/rusttv/rusttv.json` – RustTV's settings (launchers, apps).
-* `rusttv --do JOB` – for your own key bindings: `home`, `settings`, `close`,
-  `keyboard`, `volume-up`, `volume-down`, `mute`, `play-pause`, `seek-back`,
-  `seek-forward`, `previous`, `next`, `stop`.
+* `rusttv --do JOB` – for your own key bindings (or from a terminal, as the
+  TV's account - over SSH too): `home`, `settings`, `close`, `keyboard`,
+  `volume-up`, `volume-down`, `mute`, `play-pause`, `seek-back`,
+  `seek-forward`, `previous`, `next`, `stop`, `power-button`,
+  `airplay-restart` (Restart AirPlay - after fixing bubblewrap, say).
 
 ## Copying your settings to another box
 
@@ -363,6 +391,21 @@ and its Apps row can open any installed app (a terminal too). So whoever
 has the remote has the account RustTV runs in. Run RustTV in an account
 of its own, meant for the TV - not an administrator (not in the `sudo`
 group), with nothing private in it - above all with Autologin on.
+
+With the TV's account not an administrator (as it should be), RustTV
+can't turn Autologin on or install updates itself (it says so). From an
+administrator account (`box` being the TV's):
+
+```sh
+sudo /usr/local/libexec/rusttv-autologin enable box    # autologin into RustTV, for box
+sudo /usr/local/libexec/rusttv-update upgrade          # install the updates
+```
+
+Turning Autologin off still works from the TV. Anything with `sudo` in
+this guide goes in the administrator account; the `bwrap` test for AirPlay
+goes in the TV's (root isn't held back by AppArmor, so as root it always
+"works"), and RustTV's log is the TV account's
+(`sudo cat /run/user/$(id -u box)/rusttv/sway.log` from the administrator).
 
 What it does to keep the rest safe:
 

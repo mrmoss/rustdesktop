@@ -2,6 +2,55 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.9.26
+
+- RustTV: `rusttv --do airplay-restart` - Restart AirPlay from a terminal
+  (as the TV's account, over SSH too), e.g. after fixing bubblewrap.
+
+## 0.9.25
+
+RustTV:
+
+- **Auto suspend suspended during videos**: it only knew of apps using
+  Wayland's idle-inhibit, which Chromium doesn't use for a video here. Now
+  swayidle only says when the time's up, and RustTV suspends unless
+  something's going on - a media player playing (MPRIS: YouTube in a
+  browser), an app asking through org.freedesktop.ScreenSaver (Chromium's
+  way - RustTV serves it now, with RustTouch's code), a systemd idle
+  inhibitor, or AirPlay mirroring. Then it looks again every minute, until
+  someone presses something.
+- With the TV's account not an administrator, Autologin and updates say
+  what to run from an administrator's account. `rusttv-autologin enable
+  ACCOUNT` (through sudo only) turns it on for the TV's account.
+- Docs: which account runs what (administrator: sudo; the TV's: the bwrap
+  test and RustTV's log).
+
+## 0.9.24
+
+RustTV, AirPlay's sandbox on Ubuntu:
+
+- Ubuntu's AppArmor can stop bubblewrap making its sandbox (`bwrap:
+  setting up uid map: Permission denied`). Settings > AirPlay now says
+  that's what's wrong, and how to fix it. `install-rusttv.sh` notices,
+  explains, and offers to add a small AppArmor profile that lets bubblewrap
+  make its sandboxes (`/etc/apparmor.d/rusttv-bwrap` - asked first, as it
+  lets any program use bubblewrap for that); `uninstall-rusttv.sh` removes
+  it again (only if RustTV added it). docs/RUSTTV.md has the steps by hand
+  (for the `.deb`).
+
+## 0.9.23
+
+RustTV:
+
+- Logging out left the login session running (loginctl still listed it,
+  active on the screen), so logging into GNOME after failed straight away.
+  Two things outlived sway: the loop that starts RustTV again if it stops
+  (0.9.16), and the power button's hold (`systemd-inhibit ... sleep
+  infinity`). Now: **Log out** ends the whole login session (`loginctl
+  terminate-session`); `rusttv-session` does the same once sway has gone,
+  however it went; the loop only runs while sway is there; and the power
+  button's hold lasts exactly as long as RustTV (`tail --pid`).
+
 ## 0.9.22
 
 RustTouch:

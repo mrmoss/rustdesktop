@@ -41,4 +41,43 @@ if [ -n "$missing" ]; then
   echo "Note: not installed:$missing"
   echo "      sudo apt install sway wireplumber pkexec swayidle chromium network-manager bluez wl-mirror bubblewrap uxplay gstreamer1.0-plugins-bad gstreamer1.0-plugins-good gstreamer1.0-libav gstreamer1.0-gl gstreamer1.0-x"
 fi
+# AirPlay's sandbox (bubblewrap): on Ubuntu, AppArmor can stop programs making
+# the private namespaces a sandbox needs ("setting up uid map: Permission
+# denied"). A small AppArmor profile lets bubblewrap make them - asked first:
+# it lets any program use bubblewrap for that (as Flatpak needs too).
+if command -v bwrap >/dev/null && ! bwrap --ro-bind / / --dev /dev --proc /proc true 2>/dev/null \
+   && [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+  echo
+  echo "AirPlay's sandbox (bubblewrap) is blocked by Ubuntu's AppArmor here."
+  echo "An AppArmor profile can let bubblewrap make its sandboxes (any program could"
+  echo "then use bubblewrap for that, as with Flatpak)."
+  a=n
+  if [ -t 0 ]; then
+    printf "Add it? [y/N] "
+    read -r a || a=n
+  fi
+  case "$a" in
+    y|Y|yes|YES)
+      sudo tee /etc/apparmor.d/rusttv-bwrap >/dev/null <<'PROFILE'
+# Added by RustTV's install-rusttv.sh (uninstall-rusttv.sh removes it): lets
+# bubblewrap make the private namespaces its sandboxes need (AirPlay's).
+abi <abi/4.0>,
+include <tunables/global>
+profile rusttv-bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  include if exists <local/rusttv-bwrap>
+}
+PROFILE
+      if sudo apparmor_parser -r /etc/apparmor.d/rusttv-bwrap \
+         && bwrap --ro-bind / / --dev /dev --proc /proc true 2>/dev/null; then
+        echo "bubblewrap works now. In RustTV: Settings > AirPlay > Restart AirPlay."
+      else
+        echo "That didn't help - AirPlay's sandbox still can't start (see docs/RUSTTV.md)."
+      fi
+      ;;
+    *)
+      echo "Not added. To add it later: run this script again (see docs/RUSTTV.md, AirPlay)."
+      ;;
+  esac
+fi
 echo "Installed. Pick 'RustTV' on the login screen (or turn on Settings > Log in by itself in RustTV)."

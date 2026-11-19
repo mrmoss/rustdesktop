@@ -592,8 +592,12 @@ pub fn hold_power_key() {
             "--who=RustTV-power",
             "--why=RustTV does what Settings > Power button says",
             "--mode=block",
-            "sleep",
-            "infinity",
+            // (held while RustTV runs - not a moment longer: a leftover
+            // would keep the login session alive after logging out)
+            "tail",
+            &format!("--pid={}", std::process::id()),
+            "-f",
+            "/dev/null",
         ])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -613,6 +617,20 @@ pub fn hold_power_key() {
 fn power(what: &str) {
     let r = match what {
         "logout" => {
+            // the whole login session ends - everything started in it, not
+            // just sway (left behind, the session stays "active" on the
+            // screen, and logging into GNOME then fails)
+            if let Some(id) = std::env::var("XDG_SESSION_ID")
+                .ok()
+                .filter(|i| !i.is_empty())
+            {
+                if crate::launch::find("loginctl").is_some() {
+                    let _ = std::process::Command::new("loginctl")
+                        .args(["terminate-session", &id])
+                        .spawn();
+                    return;
+                }
+            }
             if sway::available() {
                 sway::run("exit");
             }

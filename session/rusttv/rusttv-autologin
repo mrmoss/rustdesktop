@@ -2,15 +2,27 @@
 # RustTV's auto-login helper: runs as root, for the person at the TV. It only
 # ever turns logging in by itself on or off *for that person's own account*,
 # into the RustTV session.
-#   rusttv-autologin enable | disable
+#   rusttv-autologin enable | disable [ACCOUNT]
 # "disable" comes through pkexec (allowed for the person at the TV: it only
 # makes things stricter). "enable" takes the login password away, so it comes
 # through sudo, with an administrator's password.
+# ACCOUNT (through sudo only - an administrator, who could change the login
+# screen anyway): another account than your own - the TV's, when it isn't an
+# administrator:  sudo /usr/local/libexec/rusttv-autologin enable box
 set -eu
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
 uid="${PKEXEC_UID:-${SUDO_UID:-}}"
 [ -n "$uid" ] || { echo "run this through pkexec or sudo" >&2; exit 1; }
+if [ -n "${2:-}" ]; then
+  [ -n "${SUDO_UID:-}" ] && [ -z "${PKEXEC_UID:-}" ] \
+    || { echo "naming an account takes sudo (an administrator)" >&2; exit 1; }
+  case "$2" in
+    *[!a-zA-Z0-9._-]*|-*) echo "unusual user name" >&2; exit 1 ;;
+  esac
+  uid=$(getent passwd "$2" | cut -d: -f3)
+  [ -n "$uid" ] || { echo "no account $2" >&2; exit 1; }
+fi
 user=$(getent passwd "$uid" | cut -d: -f1)
 [ -n "$user" ] || { echo "no user $uid" >&2; exit 1; }
 case "$user" in

@@ -27,8 +27,9 @@ for_window [app_id="at.yrlf.wl_mirror"] fullscreen enable
 
 # start on the home screen
 workspace home
-# (started again if it ever stops)
-exec sh -c 'while true; do /usr/local/bin/rusttv; sleep 1; done'
+# (started again if it ever stops - while sway is still there: once you log
+# out, the loop ends too, and the login session with it)
+exec sh -c 'while swaymsg -q -t get_version 2>/dev/null; do /usr/local/bin/rusttv; sleep 1; done'
 
 # --- the remote -------------------------------------------------------
 # Home (and the Windows key) comes back to RustTV from any app

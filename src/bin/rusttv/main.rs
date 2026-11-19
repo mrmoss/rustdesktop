@@ -16,6 +16,11 @@ mod audio;
 #[allow(dead_code)]
 #[path = "../../nm.rs"]
 mod nm;
+// (RustTouch's: what keeps the screen on - org.freedesktop.ScreenSaver for
+// Chromium, MPRIS, systemd's idle inhibitors)
+#[path = "../../inhibit.rs"]
+#[allow(dead_code)]
+mod inhibit;
 
 mod airplay;
 mod appkbd;
@@ -651,6 +656,8 @@ fn do_action(tv: &Tv, action: &str) {
         }
         // the remote's power button (Settings > Power button)
         "power-button" => settings::power_button(tv),
+        // AirPlay started again, fresh (Settings > AirPlay > Restart AirPlay)
+        "airplay-restart" => airplay::restart_from(tv, "rusttv --do airplay-restart"),
         // (and the volume pop-up shows how loud it is now)
         "volume-up" | "volume-down" | "mute" => osd::volume(action),
         other => eprintln!("rusttv: unknown action {other:?}"),
@@ -804,6 +811,9 @@ fn build(app: &gtk::Application) {
     // (a button being learned when RustTV last stopped: keys back to normal)
     remote::learning(false);
     remote::apply(&[], &cfg.keys);
+    // apps asking to keep the screen on (Chromium playing a video): heard
+    // here, so auto suspend waits for them
+    inhibit::start();
     idle::apply(cfg.auto_suspend);
     let tv: Tv = Rc::new(TvInner {
         app: app.clone(),

@@ -556,9 +556,16 @@ fn add_keys(tv: &Tv) {
 
 /// `rusttv --do <action>` from sway's key bindings, to the running RustTV.
 fn control_path() -> std::path::PathBuf {
+    // (without XDG_RUNTIME_DIR - `su box` from another account, say - the
+    // standard /run/user/<uid> it would be)
     let dir = std::env::var_os("XDG_RUNTIME_DIR")
         .map(std::path::PathBuf::from)
         .filter(|p| p.is_dir())
+        .or_else(|| {
+            use std::os::unix::fs::MetadataExt;
+            let uid = std::fs::metadata("/proc/self").ok()?.uid();
+            Some(std::path::PathBuf::from(format!("/run/user/{uid}"))).filter(|p| p.is_dir())
+        })
         .unwrap_or_else(|| config::home().join(".cache"));
     dir.join("rusttv.control")
 }
@@ -869,7 +876,10 @@ fn main() -> glib::ExitCode {
         if send_action(action) {
             return glib::ExitCode::SUCCESS;
         }
-        eprintln!("rusttv: RustTV isn't running");
+        eprintln!(
+            "rusttv: RustTV isn't running (no answer at {}) - run this as the account RustTV runs in",
+            control_path().display()
+        );
         return glib::ExitCode::FAILURE;
     }
     if args.iter().any(|a| a == "--version") {

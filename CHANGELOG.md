@@ -2,6 +2,12 @@
 
 The version is in `Cargo.toml` and shows in Settings → About.
 
+## 0.9.27
+
+- RustTV: `rusttv --do ...` said "RustTV isn't running" from a shell without
+  XDG_RUNTIME_DIR (`su box` from another account): it now looks in
+  /run/user/<uid> then, and says where it looked if there's still no answer.
+
 ## 0.9.26
 
 - RustTV: `rusttv --do airplay-restart` - Restart AirPlay from a terminal
